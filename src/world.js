@@ -17,14 +17,20 @@ export const TILES = {
 
 // Generate a proper grid city: horizontal road rows, vertical road columns,
 // X at intersections. Cells away from roads are buildings/grass/parks/water.
-const COLS = 30;
-const ROWS = 20;
-const H_ROWS = [4, 10, 16];
-const V_COLS = [4, 13, 22, 28];
-// Water region marks a slice of the riverside zone.
-const WATER = (c, r) => r >= 12 && r <= 14 && c >= 16 && c <= 21;
+const COLS = 56;
+const ROWS = 40;
+const H_ROWS = [4, 11, 18, 25, 32, 38];
+const V_COLS = [4, 12, 20, 28, 36, 44, 52];
+// Riverside water snakes through the bottom-left quadrant.
+const WATER = (c, r) =>
+  (r >= 21 && r <= 24 && c >= 6 && c <= 11) ||
+  (r >= 22 && r <= 23 && c >= 12 && c <= 19);
+// Parks: bazaar square, market school-park, riverside garden, highway rest-stop.
 const PARK = (c, r) =>
-  (c >= 7 && c <= 9 && r >= 6 && r <= 8) || (c >= 24 && c <= 26 && r >= 6 && r <= 8);
+  (c >= 7 && c <= 9 && r >= 6 && r <= 8) ||
+  (c >= 30 && c <= 33 && r >= 6 && r <= 9) ||
+  (c >= 7 && c <= 9 && r >= 28 && r <= 30) ||
+  (c >= 47 && c <= 50 && r >= 21 && r <= 23);
 
 function buildMap() {
   const out = [];
@@ -80,12 +86,14 @@ export class World {
     this.width = this.cols * TILE;
     this.height = this.rows * TILE;
 
-    // Zones — score-gated regions of the map.
+    // Zones — score-gated quadrants of the map.
+    const halfC = 25 * TILE;
+    const halfR = 21 * TILE;
     this.zones = [
-      { id: "bazaar", name: "Old Bazaar", unlock: 0, x: 0, y: 0, w: 13 * TILE, h: 10 * TILE },
-      { id: "market", name: "Market District", unlock: 50, x: 13 * TILE, y: 0, w: 17 * TILE, h: 10 * TILE },
-      { id: "river", name: "Riverside", unlock: 120, x: 0, y: 10 * TILE, w: 13 * TILE, h: 10 * TILE },
-      { id: "highway", name: "Outer Highway", unlock: 250, x: 13 * TILE, y: 10 * TILE, w: 17 * TILE, h: 10 * TILE },
+      { id: "bazaar", name: "Old Bazaar", unlock: 0, x: 0, y: 0, w: halfC, h: halfR },
+      { id: "market", name: "Market District", unlock: 50, x: halfC, y: 0, w: this.width - halfC, h: halfR },
+      { id: "river", name: "Riverside", unlock: 120, x: 0, y: halfR, w: halfC, h: this.height - halfR },
+      { id: "highway", name: "Outer Highway", unlock: 250, x: halfC, y: halfR, w: this.width - halfC, h: this.height - halfR },
     ];
 
     // Traffic lights at intersection centers. Phase cycles per group.
@@ -143,19 +151,21 @@ export class World {
   }
 
   _buildLights() {
+    // Slow real-time cycle: 18s total — 7s green, 2s yellow, 9s red per
+    // direction (NS and EW alternate). Intersections are phase-shifted by
+    // half a period so a grid doesn't all flip at once.
     const out = [];
     let i = 0;
     for (const x of this._intersections()) {
-      // Two perpendicular light groups: NS and EW. Phases offset per intersection.
-      const phase = (i++ % 2) * 4;
+      const phase = (i++ % 2) * 9;
       out.push({
         x: x.cx,
         y: x.cy,
-        // The "stop line" for southbound traffic sits north of the intersection, etc.
-        // Stored as the four approach stop-lines with a current state.
         nsGreenAt: phase,
-        ewGreenAt: phase + 4,
-        period: 8, // seconds per phase
+        ewGreenAt: (phase + 9) % 18,
+        greenDur: 7,
+        yellowDur: 2,
+        period: 18,
       });
     }
     return out;
@@ -176,66 +186,81 @@ export class World {
 
   _buildSigns() {
     return [
-      // Silence (school) zone near the park in Market District.
-      { kind: "silence", x: 25 * TILE, y: 7 * TILE, r: 220 },
+      // Silence (school) zone next to the Market District park.
+      { kind: "silence", x: 31 * TILE, y: 8 * TILE, r: 260 },
       // Per-zone speed limits — radii are large so the closest sign wins.
-      { kind: "limit", x: 2 * TILE, y: 5 * TILE, r: 1000, value: 40, label: "Old Bazaar 40" },
-      { kind: "limit", x: 20 * TILE, y: 5 * TILE, r: 1000, value: 50, label: "Market 50" },
-      { kind: "limit", x: 6 * TILE, y: 13 * TILE, r: 1000, value: 60, label: "Riverside 60" },
-      { kind: "limit", x: 24 * TILE, y: 16 * TILE, r: 1200, value: 80, label: "Highway 80" },
+      { kind: "limit", x: 2 * TILE, y: 5 * TILE, r: 5000, value: 40, label: "Old Bazaar 40" },
+      { kind: "limit", x: 40 * TILE, y: 5 * TILE, r: 5000, value: 50, label: "Market 50" },
+      { kind: "limit", x: 6 * TILE, y: 30 * TILE, r: 5000, value: 60, label: "Riverside 60" },
+      { kind: "limit", x: 40 * TILE, y: 30 * TILE, r: 5000, value: 80, label: "Highway 80" },
     ];
   }
 
   _buildPedestrians() {
+    // Spread a few pedestrians across the city rather than crowding one
+    // intersection. A simple wait/walk state machine reads much calmer than
+    // continuous sinusoidal motion.
     const peds = [];
-    // Two pedestrians who path back and forth across a zebra each.
-    for (const z of this.zebras.slice(0, 8)) {
+    for (let i = 0; i < this.zebras.length; i += 4) {
+      const z = this.zebras[i];
       peds.push({
-        x: z.x,
-        y: z.y,
         baseX: z.x,
         baseY: z.y,
         axis: z.axis,
-        t: Math.random() * Math.PI * 2,
-        speed: 0.6 + Math.random() * 0.5,
-        radius: 7,
+        x: z.x,
+        y: z.y,
         zebra: z,
-        cooldown: 0, // grace period after being yielded to
+        radius: 7,
+        // State machine: "wait" idle on a curb, "cross" walking the zebra.
+        state: "wait",
+        // Position along the zebra, -1 (one curb) .. +1 (other curb).
+        pos: Math.random() < 0.5 ? -1 : 1,
+        target: 0,
+        waitFor: 3 + Math.random() * 6,
+        crossSpeed: 0.18 + Math.random() * 0.08, // units of `pos` per second
+        cooldown: 0,
       });
     }
     return peds;
   }
 
   // Returns the current state of a light for an approach direction.
-  // dir: "N" (car moving N, approaching from south), "S","E","W".
+  // dir: "N","S","E","W" — the cardinal direction the car is moving.
   lightStateFor(light, dir, time) {
     const t = time % light.period;
-    const nsGreen = t >= light.nsGreenAt && t < light.nsGreenAt + 3.2;
-    const nsYellow = t >= light.nsGreenAt + 3.2 && t < light.nsGreenAt + 4;
-    const ewGreen = t >= light.ewGreenAt % light.period && t < (light.ewGreenAt % light.period) + 3.2;
-    const ewYellow = t >= (light.ewGreenAt % light.period) + 3.2 && t < (light.ewGreenAt % light.period) + 4;
-    if (dir === "N" || dir === "S") {
-      if (nsGreen) return "green";
-      if (nsYellow) return "yellow";
-      return "red";
-    }
-    if (ewGreen) return "green";
-    if (ewYellow) return "yellow";
+    const phase = (dir === "N" || dir === "S") ? light.nsGreenAt : light.ewGreenAt;
+    // Normalize elapsed seconds since this approach last turned green.
+    const since = (t - phase + light.period) % light.period;
+    if (since < light.greenDur) return "green";
+    if (since < light.greenDur + light.yellowDur) return "yellow";
     return "red";
   }
 
   update(dt) {
+    const amp = 30;
     for (const p of this.pedestrians) {
-      p.t += dt * p.speed;
       if (p.cooldown > 0) p.cooldown -= dt;
-      const amp = 26;
+      if (p.state === "wait") {
+        p.waitFor -= dt;
+        if (p.waitFor <= 0) {
+          p.state = "cross";
+          p.target = -p.pos;
+        }
+      } else {
+        const step = p.crossSpeed * dt * Math.sign(p.target - p.pos);
+        p.pos += step;
+        if ((step > 0 && p.pos >= p.target) || (step < 0 && p.pos <= p.target)) {
+          p.pos = p.target;
+          p.state = "wait";
+          p.waitFor = 4 + Math.random() * 8;
+        }
+      }
       if (p.axis === "h") {
-        // pedestrian crosses horizontally across an H zebra
-        p.x = p.baseX + Math.sin(p.t) * amp;
+        p.x = p.baseX + p.pos * amp;
         p.y = p.baseY;
       } else {
         p.x = p.baseX;
-        p.y = p.baseY + Math.sin(p.t) * amp;
+        p.y = p.baseY + p.pos * amp;
       }
     }
   }
