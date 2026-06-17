@@ -286,6 +286,45 @@ export class Renderer {
     ctx.fillRect(sx + 4, sy + 11, 3, 4);
   }
 
+  drawTraffic(traffic) {
+    const ctx = this.ctx;
+    for (const v of traffic.vehicles) {
+      const [sx, sy] = this.worldToScreen(v.x, v.y);
+      // Quick cull — only draw what's in view.
+      if (sx < -40 || sy < -40 || sx > this.canvas.width + 40 || sy > this.canvas.height + 40) continue;
+      ctx.save();
+      ctx.translate(sx, sy);
+      ctx.rotate(traffic.heading(v));
+      const w = v.w;
+      const h = v.h;
+      ctx.fillStyle = "rgba(0,0,0,0.35)";
+      ctx.fillRect(-w / 2 + 2, -h / 2 + 3, w, h);
+      ctx.fillStyle = v.color;
+      ctx.fillRect(-w / 2, -h / 2, w, h);
+      ctx.fillStyle = v.trim;
+      ctx.fillRect(-w / 2, -h / 2, w, 2);
+      ctx.fillRect(-w / 2, h / 2 - 2, w, 2);
+      ctx.fillRect(-w / 2, -h / 2, 2, h);
+      ctx.fillRect(w / 2 - 2, -h / 2, 2, h);
+      // windshield
+      ctx.fillStyle = "#1a2c44";
+      ctx.fillRect(w / 2 - Math.max(6, w * 0.3), -h / 2 + 2, Math.max(4, w * 0.18), h - 4);
+      // headlights / tail
+      ctx.fillStyle = "#fff7c2";
+      ctx.fillRect(w / 2 - 2, -h / 2 + 1, 2, 3);
+      ctx.fillRect(w / 2 - 2, h / 2 - 4, 2, 3);
+      ctx.fillStyle = v.brakeHint > 0 ? "#ff2020" : "#7a1818";
+      ctx.fillRect(-w / 2, -h / 2 + 1, 2, 3);
+      ctx.fillRect(-w / 2, h / 2 - 4, 2, 3);
+      // auto-rickshaw canopy ridge
+      if (v.kind === "auto") {
+        ctx.fillStyle = v.trim;
+        ctx.fillRect(-w / 2 + 4, -h / 2 + 5, w - 8, 2);
+      }
+      ctx.restore();
+    }
+  }
+
   drawCar(car) {
     const ctx = this.ctx;
     const [sx, sy] = this.worldToScreen(car.x, car.y);

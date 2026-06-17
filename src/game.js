@@ -3,6 +3,7 @@ import { Car } from "./car.js";
 import { Renderer } from "./sprites.js";
 import { Input } from "./input.js";
 import { Score } from "./score.js";
+import { Traffic } from "./traffic.js";
 
 export class Game {
   constructor(canvas) {
@@ -11,6 +12,7 @@ export class Game {
     this.world = new World();
     this.renderer = new Renderer(canvas);
     this.car = new Car(this.world.spawn.x, this.world.spawn.y, this.world.spawn.dir);
+    this.traffic = new Traffic(this.world, 28);
     this.score = new Score(this.world, (msg, type) => this._flash(msg, type));
     this.time = 0;
     this.running = false;
@@ -110,6 +112,7 @@ export class Game {
 
     this.car.update(dt, this.input, this.world);
     this.world.update(dt);
+    this.traffic.update(dt, this.time, this.car);
 
     this._enforceRules(dt);
     this._updateHud();
@@ -182,6 +185,30 @@ export class Game {
       }
     }
 
+    // Other vehicles — collisions are big penalties; head-ons (when the player
+    // is on the wrong side) cost more than rear-ends.
+    for (const v of this.traffic.vehicles) {
+      const dx = v.x - car.x;
+      const dy = v.y - car.y;
+      const d = Math.hypot(dx, dy);
+      if (d < 22) {
+        const carHeading = { x: Math.cos(car.dir), y: Math.sin(car.dir) };
+        const vHeading = this._dirVec(v.dir);
+        const dot = carHeading.x * vHeading.x + carHeading.y * vHeading.y;
+        const headOn = dot < -0.4;
+        if (headOn) {
+          this.score.award("crash-head", -30, "−30 Head-on collision!", "bad", 2.5);
+        } else {
+          this.score.award("crash", -20, "−20 Collision with traffic", "bad", 2.5);
+        }
+        // Knockback for both — bigger on the player.
+        car.vel *= -0.35;
+        car.x -= (dx / d) * 4;
+        car.y -= (dy / d) * 4;
+        v.speed = Math.max(0, v.speed * 0.4);
+      }
+    }
+
     // Pedestrian / zebra enforcement.
     for (const p of this.world.pedestrians) {
       const d = Math.hypot(p.x - car.x, p.y - car.y);
@@ -212,6 +239,13 @@ export class Game {
       }
     }
     return limit;
+  }
+
+  _dirVec(d) {
+    if (d === "E") return { x: 1, y: 0 };
+    if (d === "W") return { x: -1, y: 0 };
+    if (d === "N") return { x: 0, y: -1 };
+    return { x: 0, y: 1 };
   }
 
   _cardinalDir(rad) {
@@ -246,6 +280,7 @@ export class Game {
     this.renderer.clear();
     this.renderer.setCamera(this.car.x, this.car.y);
     this.renderer.drawWorld(this.world, this.time);
+    this.renderer.drawTraffic(this.traffic);
     this._drawLockedOverlay();
     this.renderer.drawCar(this.car);
   }
