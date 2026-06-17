@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
+    <title>RoadAhead — Indian Road Safety Driving Game</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div id="app">
+      <header id="hud">
+        <div class="hud-left">
+          <span class="title">RoadAhead</span>
+          <span class="zone" id="zone">Old Bazaar</span>
+        </div>
+        <div class="hud-center">
+          <div class="meter">
+            <span class="label">Score</span>
+            <span class="value" id="score">0</span>
+          </div>
+          <div class="meter">
+            <span class="label">Speed</span>
+            <span class="value"><span id="speed">0</span> km/h</span>
+          </div>
+          <div class="meter">
+            <span class="label">Limit</span>
+            <span class="value"><span id="limit">40</span></span>
+          </div>
+        </div>
+        <div class="hud-right">
+          <div class="meter">
+            <span class="label">Rating</span>
+            <span class="value" id="rating">Learner</span>
+          </div>
+        </div>
+      </header>
+
+      <main id="stage">
+        <canvas id="game" width="960" height="600"></canvas>
+        <div id="ticker"></div>
+        <div id="objective"></div>
+
+        <div id="overlay" class="overlay show">
+          <div class="card">
+            <h1>RoadAhead</h1>
+            <p class="subtitle">A pixel-art driving game about Indian road rules.</p>
+            <ul class="controls">
+              <li><kbd>↑</kbd> accelerate &nbsp; <kbd>↓</kbd> reverse</li>
+              <li><kbd>←</kbd> <kbd>→</kbd> steer &nbsp; <kbd>Space</kbd> brake</li>
+              <li><kbd>H</kbd> horn &nbsp; <kbd>R</kbd> restart drive</li>
+            </ul>
+            <div class="rules">
+              <strong>Drive on the LEFT.</strong>
+              Stop at red lights, give way at zebra crossings, obey the speed
+              limit, and don't honk in silence zones.
+            </div>
+            <button id="start">Start driving</button>
+          </div>
+        </div>
+      </main>
+
+      <footer id="legend">
+        <span class="chip good">+10 Stopped at red</span>
+        <span class="chip good">+5 Gave way to pedestrian</span>
+        <span class="chip bad">−25 Ran red light</span>
+        <span class="chip bad">−15 Hit pedestrian</span>
+        <span class="chip bad">−10 Wrong side</span>
+        <span class="chip bad">−10 Over speed limit</span>
+        <span class="chip bad">−5 Honked in silence zone</span>
+      </footer>
+    </div>
+
+    <script type="module" src="src/main.js"></script>
+  </body>
+</html>
