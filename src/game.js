@@ -1,302 +1,441 @@
-import { World, TILE, TILES, LANE } from "./world.js";
-import { Car } from "./car.js";
-import { Renderer } from "./sprites.js";
-import { Input } from "./input.js";
-import { Score } from "./score.js";
-import { Traffic } from "./traffic.js";
+/* RoadAhead — core game loop, world rendering, scoring, event director */
+window.RA = window.RA || {};
 
-export class Game {
-  constructor(canvas) {
-    this.canvas = canvas;
-    this.input = new Input();
-    this.world = new World();
-    this.renderer = new Renderer(canvas);
-    this.car = new Car(this.world.spawn.x, this.world.spawn.y, this.world.spawn.dir);
-    this.traffic = new Traffic(this.world, 28);
-    this.score = new Score(this.world, (msg, type) => this._flash(msg, type));
-    this.time = 0;
-    this.running = false;
-    this.last = 0;
+RA.game = (function () {
+  const C = RA.C;
+  const spr = RA.spr;
+  const rnd = (a, b) => a + Math.random() * (b - a);
+  const hash = (i) => {
+    let x = (i * 2654435761) % 4294967296;
+    x = ((x >>> 13) ^ x) * 1274126177 % 4294967296;
+    return ((x >>> 16) ^ x) % 1000 / 1000;
+  };
 
-    // Per-frame rule state for de-duplicating ticker events.
-    this._lastApproach = null;
-    this._enteredOnRedAt = null;
+  const g = {
+    state: 'menu', // menu | run | paused | modal | over
+    canvas: null, ctx: null,
+    time: 0,
+    player: { lane: 1, x: C.LANES[1], speed: 0, targetLane: 1 },
+    dist: 0,
+    entities: [],
 
-    this._setupHud();
-    this._setupObjective();
-  }
+    score: 0, streak: 0, bestStreak: 0,
+    licensePts: 12, fines: 0, damage: 0,
+    followed: 0, violations: {},
+    hornPing: false,
+    stopLine: null,
 
-  start() {
-    this.running = true;
-    this.last = performance.now();
-    requestAnimationFrame((t) => this._loop(t));
-    this._flash("Drive! Stay on the LEFT side of the road.", "info");
-  }
+    // effects
+    flashT: 0, shakeT: 0, redPulseT: 0,
 
-  _setupHud() {
-    this.$score = document.getElementById("score");
-    this.$speed = document.getElementById("speed");
-    this.$limit = document.getElementById("limit");
-    this.$rating = document.getElementById("rating");
-    this.$zone = document.getElementById("zone");
-    this.$ticker = document.getElementById("ticker");
-    this.$objective = document.getElementById("objective");
-  }
+    // director
+    nextEventD: 0, lastEvent: '', quizNextM: 0, phoneT: 0,
+    pendingOverReason: null,
 
-  _setupObjective() {
-    this.objectives = [
-      { id: "explore", text: "Explore Old Bazaar — obey signals, stay left" },
-      { id: "market", text: "Reach Market District (50 pts to unlock)" },
-      { id: "river", text: "Reach Riverside (120 pts)" },
-      { id: "highway", text: "Reach the Outer Highway (250 pts)" },
-    ];
-    this._renderObjective();
-  }
+    kmh() { return Math.round(this.player.speed * C.KMH); },
+    distM() { return this.dist * C.PX2M; },
+    sy(d) { return C.PLAYER_Y - (d - this.dist); },
 
-  _renderObjective() {
-    const next = this.objectives.find((o) => {
-      if (o.id === "explore") return this.score.value < 50;
-      if (o.id === "market") return !this.score.unlocked.has("market");
-      if (o.id === "river") return !this.score.unlocked.has("river");
-      if (o.id === "highway") return !this.score.unlocked.has("highway");
-      return false;
-    });
-    this.$objective.innerHTML = next
-      ? `<div class="obj">Objective: ${next.text}</div>`
-      : `<div class="obj">All zones unlocked — drive safely for a Pro rating.</div>`;
-  }
+    init(canvas) {
+      this.canvas = canvas;
+      this.ctx = canvas.getContext('2d');
+      this.ctx.imageSmoothingEnabled = false;
+      let last = performance.now();
+      const loop = (now) => {
+        const dt = Math.min(0.05, (now - last) / 1000);
+        last = now;
+        if (this.state === 'run') this.update(dt);
+        if (this.state !== 'menu') this.draw();
+        requestAnimationFrame(loop);
+      };
+      requestAnimationFrame(loop);
+      document.addEventListener('visibilitychange', () => {
+        if (document.hidden && this.state === 'run') this.togglePause();
+      });
+    },
 
-  _flash(msg, type = "info") {
-    const el = document.createElement("div");
-    el.className = "flash " + type;
-    el.textContent = msg;
-    this.$ticker.appendChild(el);
-    setTimeout(() => el.remove(), 2400);
-    if (type === "unlock") this._renderObjective();
-  }
+    start() {
+      this.state = 'run';
+      this.time = 0;
+      this.player = { lane: 1, x: C.LANES[1], speed: 0, targetLane: 1 };
+      this.dist = 0;
+      this.entities = [];
+      this.score = 0; this.streak = 0; this.bestStreak = 0;
+      this.licensePts = 12; this.fines = 0; this.damage = 0;
+      this.followed = 0; this.violations = {};
+      this.flashT = 0; this.shakeT = 0; this.redPulseT = 0; this.invuln = 0;
+      this.nextEventD = 1400;
+      this.lastEvent = '';
+      this.quizNextM = 350;
+      this.phoneT = rnd(35, 55);
+      this.pendingOverReason = null;
+      this.trafficT = 0;
+      RA.audio.stopAll();
+      RA.ui.clearOverlays();
+      RA.ui.showScreen(null);
+      RA.ui.hud(this);
+      RA.ui.toast('Drive safe. Earn points. Dodge challans! 🇮🇳', 'info');
+    },
 
-  _loop(t) {
-    if (!this.running) return;
-    const dt = Math.min(0.05, (t - this.last) / 1000);
-    this.last = t;
-    this.time += dt;
+    togglePause() {
+      if (this.state === 'run') {
+        this.state = 'paused';
+        RA.audio.stopAll();
+        RA.ui.showScreen('pause');
+      } else if (this.state === 'paused') {
+        this.state = 'run';
+        RA.ui.showScreen(null);
+        if (this.entities.some(e => e instanceof RA.E.Ambulance && !e.done)) RA.audio.sirenStart();
+      }
+    },
 
-    this._tick(dt);
-    this._draw();
+    /* ---------------- update ---------------- */
+    update(dt) {
+      this.time += dt;
+      const p = this.player;
+      const inp = RA.input;
 
-    requestAnimationFrame((tt) => this._loop(tt));
-  }
+      // lane changes
+      const lq = inp.pollLane();
+      if (lq) {
+        p.targetLane = Math.max(0, Math.min(2, p.targetLane + lq));
+        RA.audio.click();
+      }
+      p.lane = p.targetLane;
+      p.x += (C.LANES[p.targetLane] - p.x) * Math.min(1, 9 * dt);
 
-  _tick(dt) {
-    // Restart drive.
-    if (this.input.consumePressed("r")) {
-      this.car.x = this.world.spawn.x;
-      this.car.y = this.world.spawn.y;
-      this.car.dir = this.world.spawn.dir;
-      this.car.vel = 0;
-      this._flash("Drive reset.", "info");
-    }
-    if (this.input.consumePressed("h")) {
-      this.car.horn = 1;
-      // Silence-zone penalty.
-      for (const s of this.world.signs) {
-        if (s.kind !== "silence") continue;
-        const dx = this.car.x - s.x;
-        const dy = this.car.y - s.y;
-        if (dx * dx + dy * dy < s.r * s.r) {
-          this.score.award("honk-silence", -5, "−5 Honked in silence zone", "bad", 1.5);
-          break;
+      // speed
+      if (inp.gas) p.speed += 175 * dt;
+      else if (!inp.brake) p.speed -= 35 * dt;
+      if (inp.brake) p.speed -= 430 * dt;
+      p.speed = Math.max(0, Math.min(C.MAXSPD, p.speed));
+      this.dist += p.speed * dt;
+
+      // horn
+      this.hornPing = inp.pollHorn();
+      if (this.hornPing) RA.audio.horn();
+
+      // active stop line for AI traffic
+      this.stopLine = null;
+      for (const e of this.entities) {
+        if (e.isStopEvent && !e.done && e.stopActive && e.stopActive()) {
+          const d = e.d;
+          if (d > this.dist - 100 && (this.stopLine === null || d < this.stopLine)) this.stopLine = d;
         }
       }
-    }
 
-    this.car.update(dt, this.input, this.world);
-    this.world.update(dt);
-    this.traffic.update(dt, this.time, this.car);
-
-    this._enforceRules(dt);
-    this._updateHud();
-  }
-
-  _enforceRules(dt) {
-    const car = this.car;
-    const speed = car.speedKmh;
-
-    // Speed limit by zone.
-    const limit = this._currentSpeedLimit();
-    if (speed > limit + 5) {
-      this.score.award("overspeed", -10, `−10 Over speed limit (${speed} > ${limit})`, "bad", 2.0);
-    }
-
-    // Drive on the LEFT (India). Facing east, "left" is north — east-bound
-    // belongs in the NORTH lane. Facing south, "left" is east — south-bound
-    // belongs in the EAST lane. Intersections (road_x) are exempt.
-    const tile = this.world.tileAt(car.x, car.y);
-    const cardinal = this._cardinalDir(car.dir);
-    if (Math.abs(car.vel) > 30) {
-      if (tile === TILES.road_h) {
-        const tileR = Math.floor(car.y / TILE);
-        const centerY = tileR * TILE + TILE / 2;
-        const south = car.y > centerY;
-        if ((cardinal === "E" && south) || (cardinal === "W" && !south)) {
-          this.score.award("wrong-side", -10, "−10 Wrong side of road", "bad", 2.5);
-        }
-      } else if (tile === TILES.road_v) {
-        const tileC = Math.floor(car.x / TILE);
-        const centerX = tileC * TILE + TILE / 2;
-        const west = car.x < centerX;
-        if ((cardinal === "S" && west) || (cardinal === "N" && !west)) {
-          this.score.award("wrong-side", -10, "−10 Wrong side of road", "bad", 2.5);
+      // entities
+      for (const e of this.entities) e.update(dt, this);
+      // player-vehicle collisions
+      this.invuln = Math.max(0, this.invuln - dt);
+      if (this.invuln <= 0) {
+        for (const e of this.entities) {
+          if (!e.isTraffic || e.done) continue;
+          const gap = e.d - this.dist;
+          if (gap > -76 && gap < e.h && Math.abs(e.x - p.x) < (e.w + 44) / 2 - 6) {
+            this.crashInto(e);
+            break;
+          }
         }
       }
-    }
+      this.entities = this.entities.filter(e => !e.done);
 
-    // Off-road penalty (light).
-    if (!this.world.isRoad(car.x, car.y) && Math.abs(car.vel) > 20) {
-      this.score.award("offroad", -2, "−2 Off road", "bad", 3.0);
-    }
-
-    // Traffic-light enforcement.
-    let nearestLight = null;
-    let nearestD = Infinity;
-    for (const l of this.world.lights) {
-      const d = Math.hypot(l.x - car.x, l.y - car.y);
-      if (d < nearestD) {
-        nearestD = d;
-        nearestLight = l;
+      // traffic spawning
+      this.trafficT -= dt;
+      if (this.trafficT <= 0) {
+        this.trafficT = 0.7;
+        this.spawnTraffic();
       }
-    }
-    if (nearestLight && nearestD < 60) {
-      const dir = this._cardinalDir(car.dir);
-      const state = this.world.lightStateFor(nearestLight, dir, this.time);
 
-      // Stop-line proximity by approach direction.
-      const stopLineDist = this._stopLineDistance(car, nearestLight, dir);
-      const stoppedHere =
-        Math.abs(car.vel) < 15 && stopLineDist > -10 && stopLineDist < 24;
-      const crossedOnRed =
-        state === "red" && stopLineDist < -6 && stopLineDist > -28 && Math.abs(car.vel) > 30;
-
-      if (state === "red" && stoppedHere) {
-        this.score.award(`stop-${nearestLight.x}-${nearestLight.y}`, 10, "+10 Stopped at red", "good", 6);
+      // event director
+      if (this.dist > this.nextEventD) {
+        this.spawnEvent();
+        this.nextEventD = this.dist + rnd(1700, 2600);
       }
-      if (crossedOnRed) {
-        this.score.award(`run-${nearestLight.x}-${nearestLight.y}`, -25, "−25 Ran red light!", "bad", 3);
-      }
-    }
 
-    // Other vehicles — collisions are big penalties; head-ons (when the player
-    // is on the wrong side) cost more than rear-ends.
-    for (const v of this.traffic.vehicles) {
-      const dx = v.x - car.x;
-      const dy = v.y - car.y;
-      const d = Math.hypot(dx, dy);
-      if (d < 22) {
-        const carHeading = { x: Math.cos(car.dir), y: Math.sin(car.dir) };
-        const vHeading = this._dirVec(v.dir);
-        const dot = carHeading.x * vHeading.x + carHeading.y * vHeading.y;
-        const headOn = dot < -0.4;
-        if (headOn) {
-          this.score.award("crash-head", -30, "−30 Head-on collision!", "bad", 2.5);
-        } else {
-          this.score.award("crash", -20, "−20 Collision with traffic", "bad", 2.5);
+      // phone distraction
+      this.phoneT -= dt;
+      if (this.phoneT <= 0 && !RA.ui.phoneOpen && this.stopLine === null) {
+        this.phoneT = rnd(55, 85);
+        RA.ui.phone(
+          () => this.challan('mobile'),
+          () => this.reward('mobile'),
+        );
+      }
+
+      // sign quiz at distance milestones
+      if (this.distM() > this.quizNextM && this.stopLine === null && !RA.ui.phoneOpen) {
+        this.quizNextM += 400;
+        this.state = 'modal';
+        RA.ui.quiz((correct) => {
+          if (correct) { this.score += 200; this.streak++; this.followed++; RA.audio.win(); }
+          else { this.streak = 0; }
+          this.bestStreak = Math.max(this.bestStreak, this.streak);
+          this.state = 'run';
+        });
+      }
+
+      // effects decay
+      this.flashT = Math.max(0, this.flashT - dt);
+      this.shakeT = Math.max(0, this.shakeT - dt);
+      this.redPulseT = Math.max(0, this.redPulseT - dt);
+
+      RA.ui.hud(this);
+    },
+
+    /* ---------------- spawning ---------------- */
+    laneFree(lane, dFrom, dTo, except) {
+      for (const e of this.entities) {
+        if (e === except || !e.isTraffic || e.done) continue;
+        if (e.lane === lane && e.d + 40 > dFrom && e.d - e.h - 40 < dTo) return false;
+      }
+      if (lane === this.player.lane && this.dist + 40 > dFrom && this.dist - 116 < dTo) return false;
+      return true;
+    },
+
+    carAhead(car) {
+      let best = null;
+      for (const e of this.entities) {
+        if (e === car || !e.isTraffic || e.done || e.lane !== car.lane) continue;
+        if (e.d > car.d && (!best || e.d < best.d)) best = e;
+      }
+      return best;
+    },
+
+    spawnTraffic() {
+      const max = Math.min(8, 4 + Math.floor(this.distM() / 500));
+      const count = this.entities.filter(e => e instanceof RA.E.TrafficCar).length;
+      if (count >= max) return;
+      // keep the approach to stop-line events clear
+      if (this.stopLine !== null) return;
+      const pending = this.entities.some(e => e.isStopEvent && !e.done && e.d > this.dist);
+      if (pending) return;
+      const lane = Math.floor(Math.random() * 3);
+      const d = this.dist + rnd(850, 1100);
+      if (!this.laneFree(lane, d - 260, d + 260)) return;
+      this.entities.push(new RA.E.TrafficCar(d, lane));
+    },
+
+    spawnEvent() {
+      const E = RA.E;
+      const pool = [
+        ['signal', 20], ['zebra', 15], ['ambulance', 12], ['school', 12],
+        ['speedcam', 11], ['honk', 10], ['cow', 13], ['rail', 7],
+      ].filter(([k]) => k !== this.lastEvent);
+      let total = pool.reduce((s, [, w]) => s + w, 0);
+      let r = Math.random() * total, kind = pool[0][0];
+      for (const [k, w] of pool) { r -= w; if (r <= 0) { kind = k; break; } }
+      this.lastEvent = kind;
+      const d = this.dist + 980;
+
+      if (kind === 'signal' || kind === 'zebra' || kind === 'rail') {
+        // clear traffic near the stop line so the teaching moment is readable
+        for (const e of this.entities) {
+          if (e.isTraffic && !(e instanceof E.Ambulance) && e.d > d - 300) e.done = true;
         }
-        // Knockback for both — bigger on the player.
-        car.vel *= -0.35;
-        car.x -= (dx / d) * 4;
-        car.y -= (dy / d) * 4;
-        v.speed = Math.max(0, v.speed * 0.4);
       }
-    }
-
-    // Pedestrian / zebra enforcement.
-    for (const p of this.world.pedestrians) {
-      const d = Math.hypot(p.x - car.x, p.y - car.y);
-      if (d < 16) {
-        this.score.award("hit-ped", -15, "−15 Hit pedestrian!", "bad", 2.5);
-        // bounce
-        car.vel *= -0.4;
+      switch (kind) {
+        case 'signal': this.entities.push(new E.Signal(d)); break;
+        case 'zebra': this.entities.push(new E.Zebra(d)); break;
+        case 'ambulance': this.entities.push(new E.Ambulance(this)); break;
+        case 'school': this.entities.push(new E.SchoolZone(d)); break;
+        case 'speedcam': this.entities.push(new E.SpeedCam(d)); break;
+        case 'honk': this.entities.push(new E.HonkZone(d, this)); break;
+        case 'cow': this.entities.push(new E.Cow(d)); break;
+        case 'rail': this.entities.push(new E.RailCross(d)); break;
       }
-      // Yielded: pedestrian on zebra within X, car nearly stopped within Y.
-      const onZebra = Math.abs(p.x - p.zebra.x) < p.zebra.w / 2 && Math.abs(p.y - p.zebra.y) < p.zebra.h / 2 + 6;
-      if (onZebra && d < 70 && Math.abs(car.vel) < 18 && p.cooldown <= 0) {
-        this.score.award("yield-ped", 5, "+5 Gave way to pedestrian", "good", 5);
-        p.cooldown = 6;
+    },
+
+    /* ---------------- scoring ---------------- */
+    mult() { return 1 + Math.min(8, this.streak) * 0.25; },
+
+    reward(ruleId, pts, label) {
+      if (this.state === 'over') return;
+      const rule = ruleId ? RA.RULES[ruleId] : null;
+      const base = rule ? rule.pts : pts;
+      const add = Math.round(base * this.mult());
+      this.score += add;
+      this.streak++;
+      this.bestStreak = Math.max(this.bestStreak, this.streak);
+      this.followed++;
+      const txt = rule ? rule.good : label;
+      RA.ui.toast(`+${add}  ${txt}${this.streak > 1 ? `  🔥×${this.mult().toFixed(2).replace(/0+$/, '').replace(/\.$/, '')}` : ''}`, 'good');
+      if (base >= 200) RA.audio.win(); else RA.audio.ding();
+    },
+
+    challan(ruleId) {
+      if (this.state === 'over') return;
+      const rule = RA.RULES[ruleId];
+      this.streak = 0;
+      this.fines += rule.fine;
+      this.licensePts = Math.max(0, this.licensePts - rule.lp);
+      this.violations[ruleId] = (this.violations[ruleId] || 0) + 1;
+      this.redPulseT = 1;
+      RA.audio.bad();
+      this.state = 'modal';
+      RA.audio.stopAll();
+      RA.ui.challan(rule, () => {
+        if (this.licensePts <= 0) this.gameOver('suspended');
+        else if (this.damage >= 3) this.gameOver('wrecked');
+        else {
+          this.state = 'run';
+          if (this.entities.some(e => e instanceof RA.E.Ambulance && !e.done && !e.passed)) RA.audio.sirenStart();
+        }
+      });
+      RA.ui.hud(this);
+    },
+
+    crashInto(car) {
+      const rel = this.player.speed - car.v;
+      this.shakeT = 0.5;
+      this.invuln = 1.6;
+      this.damage++;
+      RA.audio.crash();
+      this.player.speed = Math.max(0, car.v - 30);
+      car.d += 26;
+      if (rel > 90) {
+        this.challan('rash');
+      } else {
+        this.streak = 0;
+        this.score = Math.max(0, this.score - 50);
+        RA.ui.toast('-50  Maintain a safe distance! 💢', 'bad');
+        if (this.damage >= 3) this.gameOver('wrecked');
       }
-    }
-  }
+    },
 
-  _currentSpeedLimit() {
-    // Take the sign whose region contains the car (smallest radius wins).
-    let limit = 40;
-    let best = Infinity;
-    for (const s of this.world.signs) {
-      if (s.kind !== "limit") continue;
-      const d = Math.hypot(s.x - this.car.x, s.y - this.car.y);
-      if (d < s.r && d < best) {
-        best = d;
-        limit = s.value;
+    animalHit() {
+      this.shakeT = 0.5;
+      this.invuln = 1.6;
+      this.damage++;
+      this.streak = 0;
+      this.score = Math.max(0, this.score - 100);
+      this.player.speed = Math.min(this.player.speed, 40);
+      RA.audio.crash();
+      RA.ui.toast('-100  ' + RA.RULES.animal.bad + ' Slow down near strays 🐄', 'bad');
+      if (this.damage >= 3) this.gameOver('wrecked');
+    },
+
+    cameraFlash() {
+      this.flashT = 0.35;
+      RA.audio.shutter();
+    },
+
+    gameOver(reason) {
+      this.state = 'over';
+      RA.audio.stopAll();
+      RA.ui.clearOverlays();
+      const best = Math.max(this.score, +(localStorage.getItem('ra_best') || 0));
+      localStorage.setItem('ra_best', best);
+      RA.ui.gameOver(this, reason, best);
+    },
+
+    endDrive() { this.gameOver('parked'); },
+
+    /* ---------------- draw ---------------- */
+    draw() {
+      const ctx = this.ctx;
+      ctx.save();
+      if (this.shakeT > 0) {
+        ctx.translate(rnd(-5, 5) * this.shakeT * 2, rnd(-5, 5) * this.shakeT * 2);
       }
-    }
-    return limit;
-  }
 
-  _dirVec(d) {
-    if (d === "E") return { x: 1, y: 0 };
-    if (d === "W") return { x: -1, y: 0 };
-    if (d === "N") return { x: 0, y: -1 };
-    return { x: 0, y: 1 };
-  }
+      // ground
+      ctx.fillStyle = '#b98d4f';
+      ctx.fillRect(-8, -8, C.W + 16, C.H + 16);
+      // dust patches
+      for (let i = Math.floor((this.dist - 200) / 90); i < (this.dist + C.H + 200) / 90; i++) {
+        const h1 = hash(i * 3 + 7);
+        if (h1 < 0.4) {
+          ctx.fillStyle = h1 < 0.2 ? '#ad824a' : '#c29a58';
+          const y = this.sy(i * 90);
+          ctx.fillRect(hash(i) < 0.5 ? 8 : C.W - 70, y, 55 + h1 * 40, 34);
+        }
+      }
 
-  _cardinalDir(rad) {
-    // 0 = east, pi/2 = south, pi = west, -pi/2 = north
-    const a = ((rad % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2);
-    if (a < Math.PI / 4 || a >= (7 * Math.PI) / 4) return "E";
-    if (a < (3 * Math.PI) / 4) return "S";
-    if (a < (5 * Math.PI) / 4) return "W";
-    return "N";
-  }
+      // footpaths
+      ctx.fillStyle = '#8f8a94';
+      ctx.fillRect(C.ROAD_X - 16, -8, 16, C.H + 16);
+      ctx.fillRect(C.ROAD_X + C.ROAD_W, -8, 16, C.H + 16);
+      ctx.fillStyle = 'rgba(0,0,0,0.12)';
+      for (let i = Math.floor(this.dist / 40); i < (this.dist + C.H + 60) / 40; i++) {
+        const y = this.sy(i * 40);
+        ctx.fillRect(C.ROAD_X - 16, y, 16, 2);
+        ctx.fillRect(C.ROAD_X + C.ROAD_W, y, 16, 2);
+      }
 
-  // Positive = stop line is ahead of car (approaching). Negative = passed.
-  _stopLineDistance(car, light, dir) {
-    const stopOffset = TILE / 2 + 4;
-    if (dir === "E") return (light.x - stopOffset) - car.x;
-    if (dir === "W") return car.x - (light.x + stopOffset);
-    if (dir === "S") return (light.y - stopOffset) - car.y;
-    if (dir === "N") return car.y - (light.y + stopOffset);
-    return Infinity;
-  }
+      // road
+      ctx.fillStyle = '#413e49';
+      ctx.fillRect(C.ROAD_X, -8, C.ROAD_W, C.H + 16);
+      // worn patches
+      for (let i = Math.floor((this.dist - 100) / 130); i < (this.dist + C.H + 130) / 130; i++) {
+        if (hash(i * 5 + 3) < 0.3) {
+          ctx.fillStyle = 'rgba(0,0,0,0.15)';
+          const y = this.sy(i * 130);
+          ctx.fillRect(C.ROAD_X + 30 + hash(i) * 200, y, 46, 26);
+        }
+      }
+      // edge lines
+      ctx.fillStyle = '#d8d3c8';
+      ctx.fillRect(C.ROAD_X + 3, -8, 4, C.H + 16);
+      ctx.fillRect(C.ROAD_X + C.ROAD_W - 7, -8, 4, C.H + 16);
+      // lane dashes
+      for (const lx of [C.ROAD_X + 100, C.ROAD_X + 200]) {
+        for (let i = Math.floor(this.dist / 56) - 1; i < (this.dist + C.H + 56) / 56; i++) {
+          const y = this.sy(i * 56);
+          ctx.fillRect(lx - 2, y, 4, 30);
+        }
+      }
 
-  _updateHud() {
-    this.$score.textContent = String(this.score.value);
-    this.$speed.textContent = String(this.car.speedKmh);
-    this.$limit.textContent = String(this._currentSpeedLimit());
-    this.$rating.textContent = this.score.rating();
-    const z = this.world.zoneAt(this.car.x, this.car.y);
-    this.$zone.textContent = z.name + (this.score.unlocked.has(z.id) ? "" : " (locked)");
-  }
+      // roadside scenery (deterministic per world slot)
+      for (let i = Math.floor((this.dist - 150) / 130); i < (this.dist + C.H + 200) / 130; i++) {
+        const h1 = hash(i);
+        const y = this.sy(i * 130);
+        if (y < -60 || y > C.H + 60) continue;
+        const left = hash(i + 999) < 0.5;
+        const x = left ? rnd0(i, 30, C.ROAD_X - 34) : rnd0(i + 55, C.ROAD_X + C.ROAD_W + 34, C.W - 26);
+        if (h1 < 0.4) spr.tree(this.ctx, x, y);
+        else if (h1 < 0.5) spr.stall(this.ctx, x, y);
+        else if (h1 < 0.62) spr.shop(this.ctx, x, y, ['#b56576', '#6d9dc5', '#87a878'][i % 3]);
+        else if (h1 < 0.66) spr.kmStone(this.ctx, x, y, Math.max(0, Math.round(i * 130 * C.PX2M / 100) / 10).toFixed(1));
+      }
+      function rnd0(seed, a, b) { return a + hash(seed * 13 + 1) * (b - a); }
 
-  _draw() {
-    this.renderer.clear();
-    this.renderer.setCamera(this.car.x, this.car.y);
-    this.renderer.drawWorld(this.world, this.time);
-    this.renderer.drawTraffic(this.traffic);
-    this._drawLockedOverlay();
-    this.renderer.drawCar(this.car);
-  }
+      // entities: zones & road furniture first, vehicles on top
+      const vehicles = [], flat = [];
+      for (const e of this.entities) (e.isTraffic ? vehicles : flat).push(e);
+      for (const e of flat) e.draw(ctx, this);
+      vehicles.sort((a, b) => this.sy(a.d) - this.sy(b.d));
+      for (const e of vehicles) e.draw(ctx, this);
 
-  _drawLockedOverlay() {
-    // Tint zones that are still locked, so the player can see where to go.
-    const ctx = this.renderer.ctx;
-    for (const z of this.world.zones) {
-      if (this.score.unlocked.has(z.id)) continue;
-      const x = z.x - this.renderer.cam.x;
-      const y = z.y - this.renderer.cam.y;
-      ctx.fillStyle = "rgba(8, 12, 32, 0.55)";
-      ctx.fillRect(x, y, z.w, z.h);
-      ctx.fillStyle = "#ffcf3a";
-      ctx.font = "bold 12px monospace";
-      ctx.fillText(`${z.name} — ${z.unlock} pts`, x + 12, y + 24);
-    }
-  }
-}
+      // player
+      spr.player(ctx, this.player.x, C.PLAYER_Y, this.invuln > 0);
+
+      ctx.restore();
+
+      // overlays
+      if (this.flashT > 0) {
+        ctx.fillStyle = `rgba(255,255,255,${this.flashT * 2.4})`;
+        ctx.fillRect(0, 0, C.W, C.H);
+      }
+      if (this.redPulseT > 0) {
+        ctx.strokeStyle = `rgba(214,40,40,${this.redPulseT * 0.9})`;
+        ctx.lineWidth = 14;
+        ctx.strokeRect(0, 0, C.W, C.H);
+      }
+      // ambulance behind indicator
+      const amb = this.entities.find(e => e instanceof RA.E.Ambulance && !e.passed && !e.done);
+      if (amb && this.sy(amb.d) > C.H - 20) {
+        if (Math.floor(this.time * 3) % 2) {
+          ctx.fillStyle = 'rgba(214,40,40,0.92)';
+          ctx.beginPath(); ctx.roundRect(C.W / 2 - 118, C.H - 56, 236, 34, 8); ctx.fill();
+          ctx.fillStyle = '#fff';
+          ctx.font = 'bold 15px monospace';
+          ctx.textAlign = 'center';
+          ctx.fillText('🚑 AMBULANCE — GIVE WAY!', C.W / 2, C.H - 33);
+        }
+      }
+    },
+  };
+
+  return g;
+})();

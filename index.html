@@ -1,77 +1,138 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
-    <title>RoadAhead — Indian Road Safety Driving Game</title>
-    <link rel="stylesheet" href="styles.css" />
-  </head>
-  <body>
-    <div id="app">
-      <header id="hud">
-        <div class="hud-left">
-          <span class="title">RoadAhead</span>
-          <span class="zone" id="zone">Old Bazaar</span>
-        </div>
-        <div class="hud-center">
-          <div class="meter">
-            <span class="label">Score</span>
-            <span class="value" id="score">0</span>
-          </div>
-          <div class="meter">
-            <span class="label">Speed</span>
-            <span class="value"><span id="speed">0</span> km/h</span>
-          </div>
-          <div class="meter">
-            <span class="label">Limit</span>
-            <span class="value"><span id="limit">40</span></span>
-          </div>
-        </div>
-        <div class="hud-right">
-          <div class="meter">
-            <span class="label">Rating</span>
-            <span class="value" id="rating">Learner</span>
-          </div>
-        </div>
-      </header>
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <meta name="theme-color" content="#12101a" />
+  <title>RoadAhead — Drive Smart India 🇮🇳</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='80' font-size='80'>🚦</text></svg>" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div id="wrap">
+    <canvas id="game" width="480" height="720"></canvas>
 
-      <main id="stage">
-        <canvas id="game" width="960" height="600"></canvas>
-        <div id="ticker"></div>
-        <div id="objective"></div>
-
-        <div id="overlay" class="overlay show">
-          <div class="card">
-            <h1>RoadAhead</h1>
-            <p class="subtitle">A pixel-art driving game about Indian road rules.</p>
-            <ul class="controls">
-              <li><kbd>↑</kbd> accelerate &nbsp; <kbd>↓</kbd> reverse</li>
-              <li><kbd>←</kbd> <kbd>→</kbd> steer &nbsp; <kbd>Space</kbd> brake</li>
-              <li><kbd>H</kbd> horn &nbsp; <kbd>R</kbd> restart drive</li>
-            </ul>
-            <div class="rules">
-              <strong>Drive on the LEFT.</strong>
-              Stop at red lights, give way at zebra crossings, obey the speed
-              limit, and don't honk in silence zones.
-            </div>
-            <button id="start">Start driving</button>
-          </div>
-        </div>
-      </main>
-
-      <footer id="legend">
-        <span class="chip good">+10 Stopped at red</span>
-        <span class="chip good">+5 Gave way to pedestrian</span>
-        <span class="chip bad">−25 Ran red light</span>
-        <span class="chip bad">−15 Hit pedestrian</span>
-        <span class="chip bad">−10 Wrong side</span>
-        <span class="chip bad">−10 Over speed limit</span>
-        <span class="chip bad">−5 Honked in silence zone</span>
-        <span class="chip bad">−20 Hit traffic</span>
-        <span class="chip bad">−30 Head-on crash</span>
-      </footer>
+    <!-- HUD -->
+    <div id="hud">
+      <div class="hud-cell">
+        <label>SCORE</label>
+        <b id="hud-score">0</b>
+        <em id="hud-streak"></em>
+      </div>
+      <div class="hud-cell mid">
+        <b id="hud-lic">🪪 12</b>
+        <em id="hud-dmg">❤️❤️❤️</em>
+      </div>
+      <div class="hud-cell right">
+        <label>CHALLANS</label>
+        <b id="hud-fines">₹0</b>
+        <em id="hud-dist">0.0 km</em>
+      </div>
     </div>
 
-    <script type="module" src="src/main.js"></script>
-  </body>
+    <div id="toasts"></div>
+
+    <div id="speedo"><b id="speed-val">0</b><small>km/h</small></div>
+
+    <div id="quick-btns">
+      <button id="btn-pause" title="Pause (P)">⏸</button>
+      <button id="btn-mute" title="Mute (M)">🔊</button>
+    </div>
+
+    <!-- touch controls -->
+    <div id="touch">
+      <button id="t-left">◀</button>
+      <button id="t-brake">BRAKE</button>
+      <button id="t-horn">📯</button>
+      <button id="t-gas">GAS</button>
+      <button id="t-right">▶</button>
+    </div>
+
+    <!-- MENU -->
+    <div id="menu" class="screen">
+      <div class="menu-inner">
+        <div class="flag-bar"></div>
+        <h1>Road<span>Ahead</span></h1>
+        <p class="tagline">Drive Smart India 🇮🇳</p>
+        <p class="pitch">Earn Safety Points for driving right.<br>
+          Jump a signal, block an ambulance or honk at a hospital…<br>
+          and the <b>e-challan</b> finds you. 😬</p>
+        <button id="btn-start" class="btn primary big">🚗 START DRIVING</button>
+        <div class="menu-row">
+          <button id="btn-howto" class="btn">🎮 How to Play</button>
+          <button id="btn-rules" class="btn">📖 Rule Book</button>
+        </div>
+        <p id="menu-best" class="best"></p>
+      </div>
+    </div>
+
+    <!-- HOW TO PLAY -->
+    <div id="howto" class="screen">
+      <div class="panel">
+        <h2>🎮 How to Play</h2>
+        <div class="howto-grid">
+          <div><b>⬅️ ➡️ / A D</b> change lane (or swipe)</div>
+          <div><b>⬆️ / W</b> accelerate · <b>⬇️ / S</b> brake</div>
+          <div><b>H / Space / 📯</b> horn — nudges slow traffic aside</div>
+          <div><b>P</b> pause · <b>M</b> mute</div>
+        </div>
+        <h2>🏆 How to Win</h2>
+        <ul>
+          <li>🚦 <b>Stop at red lights</b> and wait for green.</li>
+          <li>🚸 <b>Stop for pedestrians</b> at zebra crossings.</li>
+          <li>🚑 Siren behind you? <b>Change lanes and give way.</b></li>
+          <li>🏫 <b>Under 25 km/h</b> in school zones, <b>under 50</b> at cameras.</li>
+          <li>🏥 <b>No honking</b> in hospital silence zones — even at slow autos!</li>
+          <li>🚂 <b>Wait at railway gates.</b> 🐄 Slow down for strays.</li>
+          <li>📱 Phone rings while driving? <b>Decline it.</b></li>
+        </ul>
+        <p class="note">Every good deed grows your 🔥 streak multiplier. Every challan costs ₹, license points — and your streak. Lose all 12 license points and you're suspended!</p>
+        <button class="btn btn-back">← Back</button>
+      </div>
+    </div>
+
+    <!-- RULE BOOK -->
+    <div id="rulebook" class="screen">
+      <div class="panel">
+        <h2>📖 The Rule Book</h2>
+        <div id="rulebook-list"></div>
+        <button class="btn btn-back">← Back</button>
+      </div>
+    </div>
+
+    <!-- PAUSE -->
+    <div id="pause" class="screen dim">
+      <div class="panel small">
+        <h2>⏸ Paused</h2>
+        <p>Chai break? Take your time.</p>
+        <button id="btn-resume" class="btn primary">▶ Resume</button>
+        <button id="btn-end-drive" class="btn">🅿️ End Drive</button>
+      </div>
+    </div>
+
+    <!-- GAME OVER -->
+    <div id="gameover" class="screen">
+      <div class="panel">
+        <h2 id="go-title"></h2>
+        <p id="go-sub" class="note"></p>
+        <div id="go-grade"></div>
+        <div id="go-stats" class="go-stats"></div>
+        <div id="go-lessons"></div>
+        <div class="menu-row">
+          <button id="btn-again" class="btn primary">🔁 Drive Again</button>
+          <button id="btn-go-menu" class="btn">🏠 Menu</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="src/rules.js"></script>
+  <script src="src/audio.js"></script>
+  <script src="src/sprites.js"></script>
+  <script src="src/input.js"></script>
+  <script src="src/entities.js"></script>
+  <script src="src/ui.js"></script>
+  <script src="src/game.js"></script>
+  <script src="src/main.js"></script>
+</body>
 </html>
