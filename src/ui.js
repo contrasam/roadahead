@@ -12,7 +12,7 @@ RA.ui = (function () {
       fines: $('hud-fines'), dist: $('hud-dist'), dmg: $('hud-dmg'),
       speed: $('speed-val'), speedo: $('speedo'),
       toasts: $('toasts'),
-      screens: ['menu', 'howto', 'rulebook', 'gameover', 'pause'].reduce((o, k) => (o[k] = $(k), o), {}),
+      screens: ['menu', 'howto', 'rulebook', 'gameover', 'pause', 'school'].reduce((o, k) => (o[k] = $(k), o), {}),
     };
 
     $('btn-start').onclick = () => { RA.audio.ensure(); RA.audio.click(); RA.game.start(); };

@@ -59,6 +59,7 @@
           and the <b>e-challan</b> finds you. 😬</p>
         <button id="btn-start" class="btn primary big">🚗 START DRIVING</button>
         <div class="menu-row">
+          <button id="btn-school" class="btn">🎓 Driving School</button>
           <button id="btn-howto" class="btn">🎮 How to Play</button>
           <button id="btn-rules" class="btn">📖 Rule Book</button>
         </div>
@@ -100,6 +101,38 @@
       </div>
     </div>
 
+    <!-- DRIVING SCHOOL -->
+    <div id="school" class="screen">
+      <div class="panel">
+        <div id="school-pick">
+          <h2>🎓 Driving School</h2>
+          <p class="note">Junctions are where Indian traffic gets messy. Watch, learn, then ace the quick check.</p>
+          <button class="lesson-card" data-l="cross">
+            <span class="lc-icon">➕</span>
+            <span class="lc-body"><b>Crossroads</b><small>Right of way · turning left &amp; right · never block the box</small></span>
+            <span class="lc-done">▶ Start lesson</span>
+          </button>
+          <button class="lesson-card" data-l="round">
+            <span class="lc-icon">🔄</span>
+            <span class="lc-body"><b>Roundabout</b><small>Clockwise only · yield to circulating traffic · signal your exit</small></span>
+            <span class="lc-done">▶ Start lesson</span>
+          </button>
+        </div>
+        <div id="lesson-view" hidden>
+          <h2 id="lesson-title"></h2>
+          <canvas id="tut-canvas" width="480" height="360"></canvas>
+          <p id="lesson-text" class="lesson-text"></p>
+          <div id="lesson-quiz"></div>
+          <div id="lesson-dots"></div>
+          <div class="menu-row">
+            <button id="lesson-prev" class="btn">◀ Prev</button>
+            <button id="lesson-next" class="btn primary">Next ▶</button>
+          </div>
+        </div>
+        <button id="school-back" class="btn">← Back</button>
+      </div>
+    </div>
+
     <!-- PAUSE -->
     <div id="pause" class="screen dim">
       <div class="panel small">
@@ -132,6 +165,7 @@
   <script src="src/input.js"></script>
   <script src="src/entities.js"></script>
   <script src="src/ui.js"></script>
+  <script src="src/tutorial.js"></script>
   <script src="src/game.js"></script>
   <script src="src/main.js"></script>
 </body>

@@ -45,6 +45,19 @@ Plus **road-sign quizzes** every 400 m (Indian sign conventions: red circles =
 prohibition, red triangles = caution, blue = information) and a full **Rule Book**
 from the menu.
 
+### 🎓 Driving School
+
+Animated step-by-step lessons on the two junctions where Indian traffic gets messiest:
+
+- **Crossroads** — stop-line discipline, give way to the right at uncontrolled
+  crossings, left/right turn technique, and keeping the yellow box clear.
+- **Roundabout** — clockwise circulation (island on your right), yielding to
+  circulating traffic, lane choice and signalling for the 1st exit / straight /
+  3rd exit, and why anti-clockwise "shortcuts" kill.
+
+Each lesson animates the manoeuvres with a dashed path preview, then ends with
+quick knowledge-check questions and a completion badge.
+
 ## 🏆 Scoring
 
 - Correct behaviour earns points, boosted by a 🔥 **streak multiplier** (up to ×3).
@@ -59,6 +72,7 @@ from the menu.
 index.html      shell + HUD + screens
 styles.css      Indian-flag themed UI
 src/rules.js    rule data, fines, SVG road signs, constants
+src/tutorial.js Driving School animated junction lessons
 src/sprites.js  canvas sprites (cars, trucks, autos, cow, train…)
 src/audio.js    WebAudio SFX (siren, horn, bell, crash — no assets)
 src/input.js    keyboard, touch buttons, swipe
