@@ -279,7 +279,7 @@ RA.game = (function () {
         else if (this.damage >= 3) this.gameOver('wrecked');
         else {
           this.state = 'run';
-          if (this.entities.some(e => e instanceof RA.E.Ambulance && !e.done && !e.passed)) RA.audio.sirenStart();
+          if (this.entities.some(e => e instanceof RA.E.Ambulance && !e.done)) RA.audio.sirenStart();
         }
       });
       RA.ui.hud(this);
