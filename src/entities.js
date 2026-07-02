@@ -111,6 +111,10 @@ window.RA = window.RA || {};
       if (g.dist - this.d > 500) this.done = true;
     }
     draw(ctx, g) {
+      const ySign = g.sy(this.d - 380);
+      if (ySign > -40 && ySign < C.H + 40) {
+        spr.board(ctx, C.ROAD_X - 26, ySign, (c, x, yy) => spr.signTriangle(c, x, yy, '🚦', 'SIGNAL'));
+      }
       const y = g.sy(this.d);
       if (y < -80 || y > C.H + 80) return;
       // stop line
@@ -173,8 +177,10 @@ window.RA = window.RA || {};
       if (y < -80 || y > C.H + 80) return;
       ctx.fillStyle = '#e8e3d5';
       for (let i = 0; i < 7; i++) ctx.fillRect(C.ROAD_X + 8 + i * 42, y - 30, 28, 34);
-      if (g.sy(this.d + 320) > -40) {
-        spr.board(ctx, C.ROAD_X - 26, g.sy(this.d + 320), (c, x, yy) => spr.signTriangle(c, x, yy, '🚶', 'CROSSING'));
+      // advance warning board, well BEFORE the crossing on the approach side
+      const ySign = g.sy(this.d - 360);
+      if (ySign > -40 && ySign < C.H + 40) {
+        spr.board(ctx, C.ROAD_X - 26, ySign, (c, x, yy) => spr.signTriangle(c, x, yy, '🚶', 'CROSSING'));
       }
       for (const p of this.peds) {
         if (p.fled) ctx.font = '10px monospace';
@@ -279,8 +285,16 @@ window.RA = window.RA || {};
       for (let i = 0; i < 3; i++) {
         spr.ped(ctx, C.ROAD_X - 18, g.sy(this.start + 180 + i * 200), g.time * 8 + i * 2, '#3d8bfd');
       }
-      spr.board(ctx, C.ROAD_X + C.ROAD_W + 26, g.sy(this.start - 60), (c, x, y) => spr.signCircle(c, x, y, '25', 'SCHOOL'));
+      // advance warning well before the zone, so there is time to slow down
+      spr.board(ctx, C.ROAD_X + C.ROAD_W + 26, g.sy(this.start - 400), (c, x, y) => spr.signCircle(c, x, y, '25', 'SCHOOL AHEAD'));
+      spr.board(ctx, C.ROAD_X + C.ROAD_W + 26, g.sy(this.start), (c, x, y) => spr.signCircle(c, x, y, '25', 'ZONE STARTS'));
       spr.board(ctx, C.ROAD_X + C.ROAD_W + 26, g.sy(this.end), (c, x, y) => spr.signCircle(c, x, y, '25', 'ZONE ENDS'));
+      // painted road markings on the approach: driver reads SLOW, then 25
+      ctx.fillStyle = '#e8e3d5';
+      ctx.font = 'bold 26px monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText('SLOW', C.ROAD_X + C.ROAD_W / 2, g.sy(this.start - 280));
+      ctx.fillText('25', C.ROAD_X + C.ROAD_W / 2, g.sy(this.start - 200));
     }
   }
 
@@ -356,7 +370,8 @@ window.RA = window.RA || {};
       const y1 = g.sy(this.start), y0 = g.sy(this.end);
       if (y1 < -80 || y0 > C.H + 120) return;
       spr.hospital(ctx, C.ROAD_X + C.ROAD_W + 48, g.sy(this.start + 400));
-      spr.board(ctx, C.ROAD_X - 26, g.sy(this.start - 60), (c, x, yy) => spr.signCircle(c, x, yy, '📯', 'NO HORN'));
+      spr.board(ctx, C.ROAD_X - 26, g.sy(this.start - 380), (c, x, yy) => spr.signCircle(c, x, yy, '📯', 'NO HORN AHEAD'));
+      spr.board(ctx, C.ROAD_X - 26, g.sy(this.start), (c, x, yy) => spr.signCircle(c, x, yy, '📯', 'SILENCE ZONE'));
       spr.board(ctx, C.ROAD_X - 26, g.sy(this.end), (c, x, yy) => spr.signCircle(c, x, yy, '✓', 'ZONE ENDS'));
     }
   }
@@ -405,6 +420,109 @@ window.RA = window.RA || {};
       const y = g.sy(this.d);
       if (y < -60 || y > C.H + 60) return;
       spr.cow(ctx, this.x, y, this.dir, this.pause > 0 ? 0 : this.step);
+    }
+  }
+
+  /* ---------------- signalled cross junction ----------------
+     A perpendicular road crosses yours. While your light is red, cross
+     traffic flows through the junction — jump the signal and you risk a
+     T-bone, not just a challan. this.d is the stop line; the junction
+     box spans world [d+20, d+190]. */
+  class CrossJunction {
+    constructor(d) {
+      this.d = d;
+      this.state = 'green';
+      this.armed = true;
+      this.t = 0;
+      this.stopT = 0;
+      this.crossed = false;
+      this.cars = [];
+      this.spawnT = 0.3;
+      this.isStopEvent = true;
+    }
+    stopActive() { return this.state === 'red'; }
+    update(dt, g) {
+      const gap = this.d - g.dist;
+      this.t += dt;
+      if (this.state === 'green' && this.armed && !this.crossed && gap < 560 && gap > 60) {
+        this.armed = false;
+        this.state = 'yellow'; this.t = 0;
+      } else if (this.state === 'yellow' && this.t > 1.2) {
+        this.state = 'red'; this.t = 0;
+      } else if (this.state === 'red') {
+        if (g.player.speed < 10 && gap > 0 && gap < 440) this.stopT += dt;
+        if ((this.stopT > 1.8 && this.t > 3.5) || this.t > 14) {
+          this.state = 'green'; RA.audio.ding();
+        }
+      }
+      // cross traffic has green while you have yellow/red
+      this.spawnT -= dt;
+      if ((this.state === 'red' || this.state === 'yellow') && this.spawnT <= 0 && gap > -100) {
+        this.spawnT = rnd(0.6, 1.3);
+        const dir = Math.random() < 0.5 ? 1 : -1;
+        this.cars.push({
+          x: dir > 0 ? -90 : C.W + 90,
+          dir,
+          lane: dir > 0 ? this.d + 60 : this.d + 150, // left-hand traffic: each direction keeps its half
+          v: rnd(150, 220),
+          color: pick(CAR_COLORS),
+        });
+      }
+      for (const c of this.cars) c.x += c.dir * c.v * dt;
+      this.cars = this.cars.filter(c => c.x > -160 && c.x < C.W + 160);
+      // judgement at the stop line
+      if (!this.crossed && g.dist >= this.d) {
+        this.crossed = true;
+        if (this.state === 'red') g.challan('redLight');
+        else if (this.stopT > 0.8) g.reward('redLight');
+        else g.reward(null, 50, 'Crossed the junction on green');
+      }
+      // T-bone check while the player is inside the junction box
+      if (g.invuln <= 0) {
+        for (const c of this.cars) {
+          const laneGap = c.lane - g.dist; // player body spans world [dist-76, dist]
+          if (laneGap > -90 && laneGap < 14 && Math.abs(c.x - g.player.x) < 55) {
+            g.junctionHit();
+            break;
+          }
+        }
+      }
+      if (g.dist - this.d > 600 && this.cars.length === 0) this.done = true;
+    }
+    draw(ctx, g) {
+      const ySign = g.sy(this.d - 380);
+      if (ySign > -40 && ySign < C.H + 40) {
+        spr.board(ctx, C.ROAD_X - 26, ySign, (c, x, yy) => spr.signTriangle(c, x, yy, '🚦', 'JUNCTION'));
+      }
+      const y = g.sy(this.d);
+      if (y < -300 || y > C.H + 300) return;
+      // perpendicular road
+      const bandTop = g.sy(this.d + 190);
+      ctx.fillStyle = '#413e49';
+      ctx.fillRect(0, bandTop, C.W, 170);
+      ctx.fillStyle = '#d8d3c8';
+      ctx.fillRect(0, bandTop + 2, C.W, 3);
+      ctx.fillRect(0, bandTop + 165, C.W, 3);
+      // centre dashes of the cross road (broken at your carriageway)
+      const yc = g.sy(this.d + 105);
+      for (let x = 8; x < C.W; x += 48) {
+        if (x + 26 > C.ROAD_X && x < C.ROAD_X + C.ROAD_W) continue;
+        ctx.fillRect(x, yc - 2, 26, 4);
+      }
+      // stop line + signals on both sides
+      ctx.fillStyle = '#e8e3d5';
+      ctx.fillRect(C.ROAD_X, y - 4, C.ROAD_W, 6);
+      spr.signalHead(ctx, C.ROAD_X - 20, y - 6, this.state);
+      spr.signalHead(ctx, C.ROAD_X + C.ROAD_W + 20, y - 6, this.state);
+      // cross traffic
+      for (const c of this.cars) {
+        const cy = g.sy(c.lane);
+        ctx.save();
+        ctx.translate(c.x, cy);
+        ctx.rotate(c.dir > 0 ? Math.PI / 2 : -Math.PI / 2);
+        spr.car(ctx, 0, -35, 40, 70, c.color);
+        ctx.restore();
+      }
     }
   }
 
@@ -493,5 +611,5 @@ window.RA = window.RA || {};
     }
   }
 
-  RA.E = { TrafficCar, Signal, Zebra, Ambulance, SchoolZone, SpeedCam, HonkZone, Cow, RailCross };
+  RA.E = { TrafficCar, Signal, Zebra, Ambulance, SchoolZone, SpeedCam, HonkZone, Cow, RailCross, CrossJunction };
 })();

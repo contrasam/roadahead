@@ -218,17 +218,19 @@ RA.game = (function () {
 
     spawnEvent() {
       const E = RA.E;
-      const pool = [
-        ['signal', 20], ['zebra', 15], ['ambulance', 12], ['school', 12],
+      const base = [
+        ['signal', 15], ['zebra', 15], ['ambulance', 12], ['school', 12],
         ['speedcam', 11], ['honk', 10], ['cow', 13], ['rail', 7],
-      ].filter(([k]) => k !== this.lastEvent);
+      ];
+      if (this.distM() > 800) base.push(['junction', 15]); // next level: signalled crossroads
+      const pool = base.filter(([k]) => k !== this.lastEvent);
       let total = pool.reduce((s, [, w]) => s + w, 0);
       let r = Math.random() * total, kind = pool[0][0];
       for (const [k, w] of pool) { r -= w; if (r <= 0) { kind = k; break; } }
       this.lastEvent = kind;
       const d = this.dist + 980;
 
-      if (kind === 'signal' || kind === 'zebra' || kind === 'rail') {
+      if (kind === 'signal' || kind === 'zebra' || kind === 'rail' || kind === 'junction') {
         // clear traffic near the stop line so the teaching moment is readable
         for (const e of this.entities) {
           if (e.isTraffic && !(e instanceof E.Ambulance) && e.d > d - 300) e.done = true;
@@ -243,6 +245,7 @@ RA.game = (function () {
         case 'honk': this.entities.push(new E.HonkZone(d, this)); break;
         case 'cow': this.entities.push(new E.Cow(d)); break;
         case 'rail': this.entities.push(new E.RailCross(d)); break;
+        case 'junction': this.entities.push(new E.CrossJunction(d)); break;
       }
     },
 
@@ -301,6 +304,18 @@ RA.game = (function () {
         RA.ui.toast('-50  Maintain a safe distance! 💢', 'bad');
         if (this.damage >= 3) this.gameOver('wrecked');
       }
+    },
+
+    junctionHit() {
+      this.shakeT = 0.6;
+      this.invuln = 1.8;
+      this.damage++;
+      this.streak = 0;
+      this.score = Math.max(0, this.score - 100);
+      this.player.speed = Math.min(this.player.speed, 30);
+      RA.audio.crash();
+      RA.ui.toast('-100  T-boned by cross traffic! This is why we stop at red 💥', 'bad');
+      if (this.damage >= 3) this.gameOver('wrecked');
     },
 
     animalHit() {
