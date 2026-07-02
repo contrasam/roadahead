@@ -62,6 +62,14 @@ window.RA = window.RA || {};
         if (opts.length) { this.lane = pick(opts); this.changing = 3; }
       }
 
+      // everyone yields to an ambulance closing in from behind in their lane
+      const amb = g.amb;
+      if (amb && amb.lane === this.lane && this.d > amb.d && this.d - amb.d < 460 && this.changing <= 0) {
+        const opts = [this.lane - 1, this.lane + 1].filter(l =>
+          l >= 0 && l <= 2 && g.laneFree(l, this.d - 90, this.d + this.h + 90, this));
+        if (opts.length) { this.lane = pick(opts); this.changing = 2.5; }
+      }
+
       if (this.d < g.dist - 500 || this.d > g.dist + 1600) this.done = true;
     }
 
@@ -220,6 +228,25 @@ window.RA = window.RA || {};
           const opts = [this.lane - 1, this.lane + 1].filter(l => l >= 0 && l <= 2);
           this.lane = pick(opts);
         }
+      }
+      // never drive over other vehicles: follow the car ahead in this lane,
+      // and weave into a free lane if it doesn't clear out fast enough
+      this.carBlockT = this.carBlockT || 0;
+      let blockedByCar = false;
+      for (const e of g.entities) {
+        if (!e.isTraffic || e === this || e.done || e.lane !== this.lane) continue;
+        const clear = (e.d - e.h) - this.d; // my front bumper to its rear
+        if (clear > -e.h && clear < 90) {
+          target = Math.min(target, Math.max(0, e.v - 10));
+          blockedByCar = true;
+        }
+      }
+      this.carBlockT = blockedByCar ? this.carBlockT + dt : 0;
+      if (this.carBlockT > 1.1) {
+        const opts = [this.lane - 1, this.lane + 1].filter(l =>
+          l >= 0 && l <= 2 && g.laneFree(l, this.d - 60, this.d + this.h + 120, this) &&
+          !(l === g.player.lane && Math.abs(g.dist - this.d) < this.h + 120));
+        if (opts.length) { this.lane = pick(opts); this.carBlockT = 0; }
       }
       this.v += Math.max(-500 * dt, Math.min(260 * dt, target - this.v));
       this.d += this.v * dt;

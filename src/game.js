@@ -124,6 +124,9 @@ RA.game = (function () {
         }
       }
 
+      // active ambulance, visible to traffic AI for yielding
+      this.amb = this.entities.find(e => e instanceof RA.E.Ambulance && !e.done) || null;
+
       // entities
       for (const e of this.entities) e.update(dt, this);
       // player-vehicle collisions
@@ -437,16 +440,27 @@ RA.game = (function () {
         ctx.lineWidth = 14;
         ctx.strokeRect(0, 0, C.W, C.H);
       }
-      // ambulance behind indicator
+      // ambulance warning: tint ITS lane so you know which one to vacate
       const amb = this.entities.find(e => e instanceof RA.E.Ambulance && !e.passed && !e.done);
-      if (amb && this.sy(amb.d) > C.H - 20) {
-        if (Math.floor(this.time * 3) % 2) {
+      if (amb) {
+        const lx = C.LANES[amb.lane];
+        const pulse = 0.5 + 0.5 * Math.sin(this.time * 8);
+        ctx.fillStyle = `rgba(214,40,40,${0.07 + 0.09 * pulse})`;
+        ctx.fillRect(lx - 50, 0, 100, C.H);
+        ctx.strokeStyle = `rgba(214,40,40,${0.35 + 0.4 * pulse})`;
+        ctx.lineWidth = 3;
+        ctx.setLineDash([14, 10]);
+        ctx.strokeRect(lx - 50, -4, 100, C.H + 8);
+        ctx.setLineDash([]);
+        // while it is still off-screen behind, mark its lane at the bottom edge
+        if (this.sy(amb.d) > C.H - 20 && Math.floor(this.time * 3) % 2) {
           ctx.fillStyle = 'rgba(214,40,40,0.92)';
-          ctx.beginPath(); ctx.roundRect(C.W / 2 - 118, C.H - 56, 236, 34, 8); ctx.fill();
+          ctx.beginPath(); ctx.roundRect(lx - 52, C.H - 58, 104, 36, 8); ctx.fill();
           ctx.fillStyle = '#fff';
-          ctx.font = 'bold 15px monospace';
+          ctx.font = 'bold 13px monospace';
           ctx.textAlign = 'center';
-          ctx.fillText('🚑 AMBULANCE — GIVE WAY!', C.W / 2, C.H - 33);
+          ctx.fillText('🚑 ⬆', lx, C.H - 42);
+          ctx.fillText('GIVE WAY', lx, C.H - 28);
         }
       }
     },
