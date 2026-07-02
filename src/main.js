@@ -1,18 +1,8 @@
-import { Game } from "./game.js";
-
-const canvas = document.getElementById("game");
-const overlay = document.getElementById("overlay");
-const startBtn = document.getElementById("start");
-
-const game = new Game(canvas);
-
-startBtn.addEventListener("click", () => {
-  overlay.classList.remove("show");
-  game.start();
-});
-
-document.addEventListener("keydown", (e) => {
-  if (e.key === "Enter" && overlay.classList.contains("show")) {
-    startBtn.click();
-  }
+/* RoadAhead — boot */
+window.addEventListener('DOMContentLoaded', () => {
+  RA.ui.init();
+  RA.input.init();
+  RA.tut.init();
+  RA.game.init(document.getElementById('game'));
+  RA.ui.showScreen('menu');
 });

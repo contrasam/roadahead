@@ -1,372 +1,351 @@
-// Pixel-art rendering. Everything is drawn procedurally on the canvas
-// at integer offsets and the canvas is scaled with image-rendering:pixelated
-// for crisp pixels.
+/* RoadAhead — canvas sprite drawing (top-down, pixel-art flavour) */
+window.RA = window.RA || {};
 
-import { TILE, TILES, LANE } from "./world.js";
+RA.spr = (function () {
+  const S = {};
 
-const COLORS = {
-  grass1: "#3f7a3a",
-  grass2: "#356a31",
-  grassDot: "#65a85a",
-  road: "#2a2d36",
-  roadShade: "#23262e",
-  laneLine: "#f1e0a3",
-  curb: "#9a9a9a",
-  bldgWall: ["#a85a3b", "#b86a4b", "#86462f", "#5d6c8c", "#7886a8"],
-  bldgRoof: "#1c1f28",
-  bldgWindow: "#ffe49b",
-  park: "#4a8a3c",
-  parkTree: "#225a25",
-  water: "#3a73a3",
-  waterShine: "#7fb4d9",
-  sand: "#c1ad77",
-  carBody: "#ffcf3a",
-  carDark: "#a8852b",
-  carWindow: "#1a2c44",
-  zebra: "#f7f7f7",
-  signRed: "#d8423f",
-  signWhite: "#f6f6f6",
-  signBack: "#22252b",
-  pedSkin: "#e3b18a",
-  pedShirt: ["#e8554d", "#3a8fd0", "#7ac46a", "#c66bb4"],
-  pedPants: "#2a2f43",
-  lightRed: "#ff4040",
-  lightYel: "#ffcf3a",
-  lightGrn: "#5cd66b",
-};
-
-export class Renderer {
-  constructor(canvas) {
-    this.canvas = canvas;
-    this.ctx = canvas.getContext("2d");
-    this.ctx.imageSmoothingEnabled = false;
-    this.cam = { x: 0, y: 0 };
-    this._tileCache = new Map();
+  function wheel(ctx, x, y, w, h) {
+    ctx.fillStyle = '#15151a';
+    ctx.fillRect(x, y, w, h);
   }
 
-  setCamera(x, y) {
-    const w = this.canvas.width;
-    const h = this.canvas.height;
-    this.cam.x = Math.floor(x - w / 2);
-    this.cam.y = Math.floor(y - h / 2);
-  }
-
-  worldToScreen(x, y) {
-    return [Math.floor(x - this.cam.x), Math.floor(y - this.cam.y)];
-  }
-
-  clear() {
-    this.ctx.fillStyle = "#0a1126";
-    this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
-  }
-
-  drawWorld(world, time) {
-    const { ctx, cam } = this;
-    const cols = world.cols;
-    const rows = world.rows;
-    const startC = Math.max(0, Math.floor(cam.x / TILE));
-    const startR = Math.max(0, Math.floor(cam.y / TILE));
-    const endC = Math.min(cols, Math.ceil((cam.x + this.canvas.width) / TILE) + 1);
-    const endR = Math.min(rows, Math.ceil((cam.y + this.canvas.height) / TILE) + 1);
-
-    for (let r = startR; r < endR; r++) {
-      for (let c = startC; c < endC; c++) {
-        const t = world.tiles[r][c].t;
-        const x = c * TILE - cam.x;
-        const y = r * TILE - cam.y;
-        this._drawTile(t, x, y, c, r);
-      }
+  /* Generic car, x = centre, y = front bumper (top). */
+  S.car = function (ctx, x, y, w, h, color, opts = {}) {
+    const l = x - w / 2;
+    wheel(ctx, l - 3, y + 8, 6, 14);
+    wheel(ctx, l + w - 3, y + 8, 6, 14);
+    wheel(ctx, l - 3, y + h - 22, 6, 14);
+    wheel(ctx, l + w - 3, y + h - 22, 6, 14);
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.roundRect(l, y, w, h, 8);
+    ctx.fill();
+    // windshield + rear glass
+    ctx.fillStyle = 'rgba(20,26,40,0.85)';
+    ctx.fillRect(l + 5, y + 12, w - 10, 12);
+    ctx.fillRect(l + 5, y + h - 20, w - 10, 9);
+    // roof
+    ctx.fillStyle = 'rgba(255,255,255,0.14)';
+    ctx.fillRect(l + 6, y + 28, w - 12, h - 52);
+    if (opts.plate) {
+      ctx.fillStyle = '#f2f2e6';
+      ctx.fillRect(x - 9, y + h - 8, 18, 7);
+      ctx.fillStyle = '#c1121f';
+      ctx.font = 'bold 7px monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText(opts.plate, x, y + h - 2);
     }
-
-    // Zebra crossings on top of roads.
-    for (const z of world.zebras) {
-      this._drawZebra(z);
+    if (opts.brake) {
+      ctx.fillStyle = '#ff3b30';
+      ctx.fillRect(l + 3, y + h - 4, 8, 4);
+      ctx.fillRect(l + w - 11, y + h - 4, 8, 4);
     }
+  };
 
-    // Signs.
-    for (const s of world.signs) {
-      this._drawSign(s);
+  S.player = function (ctx, x, y, blink) {
+    if (blink && Math.floor(performance.now() / 90) % 2) return; // invulnerable flicker
+    S.car(ctx, x, y, 44, 76, '#2f7bd9', { plate: 'L', brake: false });
+    ctx.fillStyle = '#ffd23f';
+    ctx.fillRect(x - 16, y + 2, 8, 5);
+    ctx.fillRect(x + 8, y + 2, 8, 5);
+  };
+
+  S.auto = function (ctx, x, y) { // auto-rickshaw
+    const w = 36, h = 54, l = x - w / 2;
+    wheel(ctx, x - 4, y - 2, 8, 10);
+    wheel(ctx, l - 2, y + h - 14, 6, 12);
+    wheel(ctx, l + w - 4, y + h - 14, 6, 12);
+    ctx.fillStyle = '#f7c531';
+    ctx.beginPath();
+    ctx.moveTo(x, y);
+    ctx.lineTo(l + w, y + 18);
+    ctx.lineTo(l + w, y + h);
+    ctx.lineTo(l, y + h);
+    ctx.lineTo(l, y + 18);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = '#1f4d2e'; // green canopy
+    ctx.fillRect(l + 3, y + 20, w - 6, h - 26);
+    ctx.fillStyle = 'rgba(255,255,255,0.2)';
+    ctx.fillRect(l + 6, y + 24, w - 12, 8);
+  };
+
+  S.truck = function (ctx, x, y, color) {
+    const w = 52, h = 118, l = x - w / 2;
+    wheel(ctx, l - 3, y + 10, 6, 14);
+    wheel(ctx, l + w - 3, y + 10, 6, 14);
+    wheel(ctx, l - 3, y + h - 40, 6, 14);
+    wheel(ctx, l + w - 3, y + h - 40, 6, 14);
+    wheel(ctx, l - 3, y + h - 20, 6, 14);
+    wheel(ctx, l + w - 3, y + h - 20, 6, 14);
+    // cab
+    ctx.fillStyle = color;
+    ctx.beginPath(); ctx.roundRect(l + 2, y, w - 4, 30, 6); ctx.fill();
+    ctx.fillStyle = 'rgba(20,26,40,0.85)';
+    ctx.fillRect(l + 7, y + 8, w - 14, 10);
+    // cargo box, Indian truck-art style
+    ctx.fillStyle = '#d9822b';
+    ctx.fillRect(l, y + 34, w, h - 34);
+    ctx.strokeStyle = '#7a3b12';
+    ctx.lineWidth = 3;
+    ctx.strokeRect(l + 2.5, y + 36.5, w - 5, h - 39);
+    ctx.fillStyle = '#2e7d46';
+    ctx.fillRect(l + 6, y + 42, w - 12, 10);
+    ctx.fillStyle = '#fff';
+    ctx.font = 'bold 7px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText('HORN OK', x, y + h - 16);
+    ctx.fillText('PLEASE', x, y + h - 8);
+  };
+
+  S.bus = function (ctx, x, y) {
+    const w = 50, h = 132, l = x - w / 2;
+    for (const wy of [10, h / 2 - 7, h - 24]) {
+      wheel(ctx, l - 3, y + wy, 6, 14);
+      wheel(ctx, l + w - 3, y + wy, 6, 14);
     }
+    ctx.fillStyle = '#c0392b';
+    ctx.beginPath(); ctx.roundRect(l, y, w, h, 8); ctx.fill();
+    ctx.fillStyle = 'rgba(20,26,40,0.85)';
+    ctx.fillRect(l + 5, y + 8, w - 10, 12);
+    ctx.fillStyle = '#e8e3d5';
+    ctx.fillRect(l + 5, y + 26, w - 10, h - 44);
+    ctx.fillStyle = 'rgba(20,26,40,0.5)';
+    for (let i = 0; i < 5; i++) ctx.fillRect(l + 8, y + 32 + i * 18, w - 16, 8);
+  };
 
-    // Traffic lights at intersections.
-    for (const l of world.lights) {
-      this._drawLight(l, world, time);
-    }
+  S.bike = function (ctx, x, y) {
+    ctx.fillStyle = '#15151a';
+    ctx.fillRect(x - 3, y, 6, 12);
+    ctx.fillRect(x - 3, y + 40, 6, 12);
+    ctx.fillStyle = '#8e44ad';
+    ctx.fillRect(x - 6, y + 10, 12, 32);
+    ctx.fillStyle = '#f4d1ae'; // rider
+    ctx.beginPath(); ctx.arc(x, y + 22, 7, 0, 7); ctx.fill();
+    ctx.fillStyle = '#fff'; // helmet!
+    ctx.beginPath(); ctx.arc(x, y + 22, 7, Math.PI, 0); ctx.fill();
+  };
 
-    // Pedestrians.
-    for (const p of world.pedestrians) {
-      this._drawPed(p);
-    }
-  }
+  S.ambulance = function (ctx, x, y, t) {
+    const w = 48, h = 86, l = x - w / 2;
+    wheel(ctx, l - 3, y + 10, 6, 14);
+    wheel(ctx, l + w - 3, y + 10, 6, 14);
+    wheel(ctx, l - 3, y + h - 24, 6, 14);
+    wheel(ctx, l + w - 3, y + h - 24, 6, 14);
+    ctx.fillStyle = '#f4f4ef';
+    ctx.beginPath(); ctx.roundRect(l, y, w, h, 7); ctx.fill();
+    ctx.fillStyle = 'rgba(20,26,40,0.85)';
+    ctx.fillRect(l + 5, y + 10, w - 10, 11);
+    ctx.fillStyle = '#c1121f'; // red cross
+    ctx.fillRect(x - 4, y + 34, 8, 26);
+    ctx.fillRect(x - 13, y + 43, 26, 8);
+    // flashing light bar
+    const on = Math.floor(t * 6) % 2 === 0;
+    ctx.fillStyle = on ? '#ff2d2d' : '#2d6bff';
+    ctx.fillRect(l + 8, y + 3, 14, 6);
+    ctx.fillStyle = on ? '#2d6bff' : '#ff2d2d';
+    ctx.fillRect(l + w - 22, y + 3, 14, 6);
+  };
 
-  _drawTile(t, x, y, c, r) {
-    const ctx = this.ctx;
-    switch (t) {
-      case TILES.grass:
-        ctx.fillStyle = (c + r) % 2 === 0 ? COLORS.grass1 : COLORS.grass2;
-        ctx.fillRect(x, y, TILE, TILE);
-        // grass tufts
-        ctx.fillStyle = COLORS.grassDot;
-        const seed = (c * 73856093) ^ (r * 19349663);
-        for (let i = 0; i < 5; i++) {
-          const sx = x + ((seed * (i + 1) * 12) & 63);
-          const sy = y + ((seed * (i + 3) * 7) & 63);
-          ctx.fillRect(sx, sy, 2, 2);
-        }
-        break;
-      case TILES.road_h:
-        this._drawRoadH(x, y);
-        break;
-      case TILES.road_v:
-        this._drawRoadV(x, y);
-        break;
-      case TILES.road_x:
-        ctx.fillStyle = COLORS.road;
-        ctx.fillRect(x, y, TILE, TILE);
-        break;
-      case TILES.building:
-        this._drawBuilding(x, y, c, r);
-        break;
-      case TILES.park:
-        ctx.fillStyle = COLORS.park;
-        ctx.fillRect(x, y, TILE, TILE);
-        ctx.fillStyle = COLORS.parkTree;
-        ctx.fillRect(x + 14, y + 14, 12, 12);
-        ctx.fillRect(x + 38, y + 30, 14, 14);
-        ctx.fillRect(x + 22, y + 42, 10, 10);
-        break;
-      case TILES.water:
-        ctx.fillStyle = COLORS.water;
-        ctx.fillRect(x, y, TILE, TILE);
-        ctx.fillStyle = COLORS.waterShine;
-        const ws = ((c * 13 + r * 7) & 7) * 6;
-        ctx.fillRect(x + 8 + ws, y + 18, 14, 2);
-        ctx.fillRect(x + 26, y + 40, 18, 2);
-        break;
-      default:
-        ctx.fillStyle = COLORS.sand;
-        ctx.fillRect(x, y, TILE, TILE);
-    }
-  }
-
-  _drawRoadH(x, y) {
-    const ctx = this.ctx;
-    ctx.fillStyle = COLORS.grass1;
-    ctx.fillRect(x, y, TILE, TILE);
-    ctx.fillStyle = COLORS.road;
-    const top = y + TILE / 2 - LANE;
-    ctx.fillRect(x, top, TILE, LANE * 2);
-    // curbs
-    ctx.fillStyle = COLORS.curb;
-    ctx.fillRect(x, top - 2, TILE, 2);
-    ctx.fillRect(x, top + LANE * 2, TILE, 2);
-    // dashed center line
-    ctx.fillStyle = COLORS.laneLine;
-    const cy = y + TILE / 2 - 1;
-    for (let i = 0; i < TILE; i += 12) {
-      ctx.fillRect(x + i, cy, 8, 2);
-    }
-  }
-
-  _drawRoadV(x, y) {
-    const ctx = this.ctx;
-    ctx.fillStyle = COLORS.grass1;
-    ctx.fillRect(x, y, TILE, TILE);
-    ctx.fillStyle = COLORS.road;
-    const left = x + TILE / 2 - LANE;
-    ctx.fillRect(left, y, LANE * 2, TILE);
-    ctx.fillStyle = COLORS.curb;
-    ctx.fillRect(left - 2, y, 2, TILE);
-    ctx.fillRect(left + LANE * 2, y, 2, TILE);
-    ctx.fillStyle = COLORS.laneLine;
-    const cx = x + TILE / 2 - 1;
-    for (let i = 0; i < TILE; i += 12) {
-      ctx.fillRect(cx, y + i, 2, 8);
-    }
-  }
-
-  _drawBuilding(x, y, c, r) {
-    const ctx = this.ctx;
-    const palette = COLORS.bldgWall;
-    const wall = palette[(c * 31 + r * 17) % palette.length];
-    ctx.fillStyle = COLORS.grass1;
-    ctx.fillRect(x, y, TILE, TILE);
-    ctx.fillStyle = wall;
-    ctx.fillRect(x + 4, y + 8, TILE - 8, TILE - 12);
-    ctx.fillStyle = COLORS.bldgRoof;
-    ctx.fillRect(x + 4, y + 4, TILE - 8, 6);
-    ctx.fillStyle = COLORS.bldgWindow;
-    for (let wy = 0; wy < 3; wy++) {
-      for (let wx = 0; wx < 3; wx++) {
-        if (((c + r + wx + wy) & 3) === 0) continue;
-        ctx.fillRect(x + 10 + wx * 14, y + 16 + wy * 14, 8, 8);
-      }
-    }
-    // doorway
-    ctx.fillStyle = "#1d1a16";
-    ctx.fillRect(x + 28, y + TILE - 14, 8, 10);
-  }
-
-  _drawZebra(z) {
-    const [sx, sy] = this.worldToScreen(z.x - z.w / 2, z.y - z.h / 2);
-    const ctx = this.ctx;
-    ctx.fillStyle = COLORS.zebra;
-    if (z.axis === "h") {
-      for (let i = 0; i < z.w; i += 6) {
-        ctx.fillRect(sx + i, sy, 4, z.h);
-      }
-    } else {
-      for (let i = 0; i < z.h; i += 6) {
-        ctx.fillRect(sx, sy + i, z.w, 4);
-      }
-    }
-  }
-
-  _drawSign(s) {
-    const [sx, sy] = this.worldToScreen(s.x, s.y);
-    const ctx = this.ctx;
-    // post
-    ctx.fillStyle = "#444";
-    ctx.fillRect(sx + 5, sy + 6, 2, 14);
-    if (s.kind === "limit") {
-      ctx.fillStyle = COLORS.signRed;
-      ctx.fillRect(sx - 4, sy - 6, 20, 16);
-      ctx.fillStyle = COLORS.signWhite;
-      ctx.fillRect(sx - 2, sy - 4, 16, 12);
-      ctx.fillStyle = "#1a1a1a";
-      ctx.font = "bold 9px monospace";
-      ctx.fillText(String(s.value), sx - 1, sy + 5);
-    } else {
-      // silence / school
-      ctx.fillStyle = "#1f1f1f";
-      ctx.fillRect(sx - 4, sy - 6, 20, 16);
-      ctx.fillStyle = "#ffcf3a";
-      ctx.font = "bold 8px monospace";
-      ctx.fillText("SILENT", sx - 3, sy + 4);
-    }
-  }
-
-  _drawLight(l, world, time) {
-    const ctx = this.ctx;
-    const positions = [
-      { x: l.x - 18, y: l.y - 38, dir: "N" }, // for southbound traffic
-      { x: l.x + 18, y: l.y + 38, dir: "S" },
-      { x: l.x - 38, y: l.y + 18, dir: "W" },
-      { x: l.x + 38, y: l.y - 18, dir: "E" },
-    ];
-    for (const p of positions) {
-      const [sx, sy] = this.worldToScreen(p.x, p.y);
-      ctx.fillStyle = "#181b22";
-      ctx.fillRect(sx - 4, sy - 12, 10, 22);
-      ctx.fillStyle = "#2a2f3a";
-      ctx.fillRect(sx - 3, sy - 11, 8, 20);
-      const state = world.lightStateFor(l, p.dir, time);
-      const red = state === "red";
-      const yel = state === "yellow";
-      const grn = state === "green";
-      ctx.fillStyle = red ? COLORS.lightRed : "#3a1e1e";
-      ctx.fillRect(sx - 1, sy - 9, 4, 4);
-      ctx.fillStyle = yel ? COLORS.lightYel : "#3a321e";
-      ctx.fillRect(sx - 1, sy - 3, 4, 4);
-      ctx.fillStyle = grn ? COLORS.lightGrn : "#1e3a23";
-      ctx.fillRect(sx - 1, sy + 3, 4, 4);
-    }
-  }
-
-  _drawPed(p) {
-    const [sx, sy] = this.worldToScreen(p.x - 4, p.y - 8);
-    const ctx = this.ctx;
-    const shirt = COLORS.pedShirt[(Math.floor(p.baseX + p.baseY) >> 4) % COLORS.pedShirt.length];
-    ctx.fillStyle = COLORS.pedSkin;
-    ctx.fillRect(sx + 1, sy, 6, 5); // head
-    ctx.fillStyle = shirt;
-    ctx.fillRect(sx, sy + 5, 8, 6);
-    ctx.fillStyle = COLORS.pedPants;
-    ctx.fillRect(sx + 1, sy + 11, 3, 4);
-    ctx.fillRect(sx + 4, sy + 11, 3, 4);
-  }
-
-  drawTraffic(traffic) {
-    const ctx = this.ctx;
-    for (const v of traffic.vehicles) {
-      const [sx, sy] = this.worldToScreen(v.x, v.y);
-      // Quick cull — only draw what's in view.
-      if (sx < -40 || sy < -40 || sx > this.canvas.width + 40 || sy > this.canvas.height + 40) continue;
-      ctx.save();
-      ctx.translate(sx, sy);
-      ctx.rotate(traffic.heading(v));
-      const w = v.w;
-      const h = v.h;
-      ctx.fillStyle = "rgba(0,0,0,0.35)";
-      ctx.fillRect(-w / 2 + 2, -h / 2 + 3, w, h);
-      ctx.fillStyle = v.color;
-      ctx.fillRect(-w / 2, -h / 2, w, h);
-      ctx.fillStyle = v.trim;
-      ctx.fillRect(-w / 2, -h / 2, w, 2);
-      ctx.fillRect(-w / 2, h / 2 - 2, w, 2);
-      ctx.fillRect(-w / 2, -h / 2, 2, h);
-      ctx.fillRect(w / 2 - 2, -h / 2, 2, h);
-      // windshield
-      ctx.fillStyle = "#1a2c44";
-      ctx.fillRect(w / 2 - Math.max(6, w * 0.3), -h / 2 + 2, Math.max(4, w * 0.18), h - 4);
-      // headlights / tail
-      ctx.fillStyle = "#fff7c2";
-      ctx.fillRect(w / 2 - 2, -h / 2 + 1, 2, 3);
-      ctx.fillRect(w / 2 - 2, h / 2 - 4, 2, 3);
-      ctx.fillStyle = v.brakeHint > 0 ? "#ff2020" : "#7a1818";
-      ctx.fillRect(-w / 2, -h / 2 + 1, 2, 3);
-      ctx.fillRect(-w / 2, h / 2 - 4, 2, 3);
-      // auto-rickshaw canopy ridge
-      if (v.kind === "auto") {
-        ctx.fillStyle = v.trim;
-        ctx.fillRect(-w / 2 + 4, -h / 2 + 5, w - 8, 2);
-      }
-      ctx.restore();
-    }
-  }
-
-  drawCar(car) {
-    const ctx = this.ctx;
-    const [sx, sy] = this.worldToScreen(car.x, car.y);
+  S.cow = function (ctx, x, y, dir, step) {
     ctx.save();
-    ctx.translate(sx, sy);
-    // car is drawn pointing right (east) when dir=0, then rotated.
-    ctx.rotate(car.dir);
-    const w = car.h; // along travel
-    const h = car.w; // across
-    // shadow
-    ctx.fillStyle = "rgba(0,0,0,0.35)";
-    ctx.fillRect(-w / 2 + 2, -h / 2 + 3, w, h);
-    // body
-    ctx.fillStyle = COLORS.carBody;
-    ctx.fillRect(-w / 2, -h / 2, w, h);
-    // darker outline
-    ctx.fillStyle = COLORS.carDark;
-    ctx.fillRect(-w / 2, -h / 2, w, 2);
-    ctx.fillRect(-w / 2, h / 2 - 2, w, 2);
-    ctx.fillRect(-w / 2, -h / 2, 2, h);
-    ctx.fillRect(w / 2 - 2, -h / 2, 2, h);
-    // windshield
-    ctx.fillStyle = COLORS.carWindow;
-    ctx.fillRect(w / 2 - 12, -h / 2 + 2, 6, h - 4);
-    // rear window
-    ctx.fillRect(-w / 2 + 6, -h / 2 + 2, 4, h - 4);
-    // headlights
-    ctx.fillStyle = "#fff7c2";
-    ctx.fillRect(w / 2 - 2, -h / 2 + 1, 2, 3);
-    ctx.fillRect(w / 2 - 2, h / 2 - 4, 2, 3);
-    // taillights
-    ctx.fillStyle = "#ff4040";
-    ctx.fillRect(-w / 2, -h / 2 + 1, 2, 3);
-    ctx.fillRect(-w / 2, h / 2 - 4, 2, 3);
+    ctx.translate(x, y);
+    if (dir < 0) ctx.scale(-1, 1);
+    const bob = Math.sin(step) * 1.5;
+    ctx.fillStyle = '#15151a'; // legs
+    ctx.fillRect(-18, -14 + bob, 5, 8);
+    ctx.fillRect(10, -14 - bob, 5, 8);
+    ctx.fillRect(-18, 7 + bob, 5, 8);
+    ctx.fillRect(10, 7 - bob, 5, 8);
+    ctx.fillStyle = '#efe6d8'; // body
+    ctx.beginPath(); ctx.ellipse(0, 0, 24, 13, 0, 0, 7); ctx.fill();
+    ctx.fillStyle = '#a9743f';
+    ctx.beginPath(); ctx.ellipse(-6, -3, 8, 6, 0.4, 0, 7); ctx.fill();
+    ctx.beginPath(); ctx.ellipse(9, 5, 6, 4, -0.4, 0, 7); ctx.fill();
+    ctx.fillStyle = '#efe6d8'; // head
+    ctx.beginPath(); ctx.ellipse(26, 0, 9, 7, 0, 0, 7); ctx.fill();
+    ctx.strokeStyle = '#d8d3c8'; // horns
+    ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.moveTo(28, -6); ctx.quadraticCurveTo(34, -12, 30, -14); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(28, 6); ctx.quadraticCurveTo(34, 12, 30, 14); ctx.stroke();
+    ctx.fillStyle = '#15151a';
+    ctx.fillRect(30, -2, 3, 3);
     ctx.restore();
+  };
 
-    if (car.horn > 0) {
-      ctx.strokeStyle = "rgba(255,207,58,0.7)";
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-      ctx.arc(sx, sy, 20 + (1 - car.horn) * 30, 0, Math.PI * 2);
-      ctx.stroke();
+  S.ped = function (ctx, x, y, step, shirt) {
+    const sw = Math.sin(step) * 4;
+    ctx.fillStyle = '#3b2c22'; // legs
+    ctx.fillRect(x - 5 + sw / 2, y + 4, 4, 7);
+    ctx.fillRect(x + 1 - sw / 2, y + 4, 4, 7);
+    ctx.fillStyle = shirt;
+    ctx.beginPath(); ctx.ellipse(x, y, 8, 6, 0, 0, 7); ctx.fill();
+    ctx.fillStyle = '#20140d';
+    ctx.beginPath(); ctx.arc(x, y - 2, 4.5, 0, 7); ctx.fill();
+  };
+
+  /* --- roadside scenery --- */
+  S.tree = function (ctx, x, y) {
+    ctx.fillStyle = '#6b4423';
+    ctx.fillRect(x - 3, y - 4, 6, 10);
+    ctx.fillStyle = '#3f7d3a';
+    ctx.beginPath(); ctx.arc(x, y - 10, 16, 0, 7); ctx.fill();
+    ctx.fillStyle = '#54964d';
+    ctx.beginPath(); ctx.arc(x - 6, y - 14, 9, 0, 7); ctx.fill();
+  };
+
+  S.stall = function (ctx, x, y) { // chai stall
+    ctx.fillStyle = '#8a5a2b';
+    ctx.fillRect(x - 16, y - 8, 32, 20);
+    ctx.fillStyle = '#c1121f';
+    for (let i = 0; i < 4; i++) {
+      ctx.fillStyle = i % 2 ? '#c1121f' : '#f2e8cf';
+      ctx.fillRect(x - 18 + i * 9, y - 14, 9, 7);
     }
-  }
-}
+    ctx.fillStyle = '#ffd23f';
+    ctx.font = 'bold 8px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText('CHAI', x, y + 4);
+  };
+
+  S.shop = function (ctx, x, y, hue) {
+    ctx.fillStyle = hue;
+    ctx.fillRect(x - 20, y - 16, 40, 30);
+    ctx.fillStyle = 'rgba(0,0,0,0.25)';
+    ctx.fillRect(x - 14, y - 4, 12, 16);
+    ctx.fillRect(x + 3, y - 4, 12, 16);
+    ctx.fillStyle = '#f2e8cf';
+    ctx.fillRect(x - 20, y - 22, 40, 8);
+  };
+
+  S.hospital = function (ctx, x, y) {
+    ctx.fillStyle = '#e8e3d5';
+    ctx.fillRect(x - 30, y - 30, 60, 56);
+    ctx.fillStyle = '#9db4c0';
+    for (let r = 0; r < 3; r++)
+      for (let c = 0; c < 3; c++)
+        ctx.fillRect(x - 24 + c * 18, y - 24 + r * 16, 12, 9);
+    ctx.fillStyle = '#c1121f';
+    ctx.fillRect(x - 4, y - 44, 8, 18);
+    ctx.fillRect(x - 9, y - 39, 18, 8);
+    ctx.fillStyle = '#fff';
+    ctx.fillRect(x - 12, y - 47, 24, 22);
+    ctx.fillStyle = '#c1121f';
+    ctx.fillRect(x - 3, y - 43, 6, 14);
+    ctx.fillRect(x - 7, y - 39, 14, 6);
+  };
+
+  S.school = function (ctx, x, y) {
+    ctx.fillStyle = '#f2c14e';
+    ctx.fillRect(x - 32, y - 24, 64, 50);
+    ctx.fillStyle = '#a4243b';
+    ctx.beginPath();
+    ctx.moveTo(x - 36, y - 24); ctx.lineTo(x, y - 42); ctx.lineTo(x + 36, y - 24);
+    ctx.closePath(); ctx.fill();
+    ctx.fillStyle = '#5c4632';
+    ctx.fillRect(x - 7, y + 6, 14, 20);
+    ctx.fillStyle = '#9db4c0';
+    ctx.fillRect(x - 26, y - 14, 12, 12);
+    ctx.fillRect(x + 14, y - 14, 12, 12);
+    ctx.fillStyle = '#1d1d24';
+    ctx.font = 'bold 9px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText('SCHOOL', x, y - 28);
+  };
+
+  /* roadside sign board on a pole; kind drawn small */
+  S.board = function (ctx, x, y, draw) {
+    ctx.fillStyle = '#6b7280';
+    ctx.fillRect(x - 2, y - 18, 4, 26);
+    draw(ctx, x, y - 30);
+  };
+
+  S.signCircle = function (ctx, x, y, text, sub) {
+    ctx.fillStyle = '#fff';
+    ctx.beginPath(); ctx.arc(x, y, 15, 0, 7); ctx.fill();
+    ctx.strokeStyle = '#c1121f';
+    ctx.lineWidth = 4;
+    ctx.beginPath(); ctx.arc(x, y, 13, 0, 7); ctx.stroke();
+    ctx.fillStyle = '#1d1d24';
+    ctx.font = 'bold 11px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText(text, x, y + 4);
+    if (sub) {
+      ctx.fillStyle = '#f2e8cf';
+      ctx.fillRect(x - 22, y + 17, 44, 12);
+      ctx.fillStyle = '#1d1d24';
+      ctx.font = 'bold 7px monospace';
+      ctx.fillText(sub, x, y + 26);
+    }
+  };
+
+  S.signTriangle = function (ctx, x, y, emoji, sub) {
+    ctx.fillStyle = '#fff';
+    ctx.strokeStyle = '#c1121f';
+    ctx.lineWidth = 4;
+    ctx.beginPath();
+    ctx.moveTo(x, y - 15); ctx.lineTo(x + 15, y + 11); ctx.lineTo(x - 15, y + 11);
+    ctx.closePath(); ctx.fill(); ctx.stroke();
+    ctx.font = '11px serif';
+    ctx.textAlign = 'center';
+    ctx.fillText(emoji, x, y + 8);
+    if (sub) {
+      ctx.fillStyle = '#f2e8cf';
+      ctx.fillRect(x - 26, y + 15, 52, 12);
+      ctx.fillStyle = '#1d1d24';
+      ctx.font = 'bold 7px monospace';
+      ctx.fillText(sub, x, y + 24);
+    }
+  };
+
+  S.kmStone = function (ctx, x, y, km) {
+    ctx.fillStyle = '#f2e8cf';
+    ctx.beginPath(); ctx.roundRect(x - 9, y - 14, 18, 20, [8, 8, 2, 2]); ctx.fill();
+    ctx.fillStyle = '#e6b400';
+    ctx.beginPath(); ctx.roundRect(x - 9, y - 14, 18, 8, [8, 8, 0, 0]); ctx.fill();
+    ctx.fillStyle = '#1d1d24';
+    ctx.font = 'bold 7px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText(km, x, y + 2);
+  };
+
+  /* traffic signal: pole + head beside road, overhead stop line handled by caller */
+  S.signalHead = function (ctx, x, y, state) {
+    ctx.fillStyle = '#3a3a3f';
+    ctx.fillRect(x - 3, y, 6, 40);
+    ctx.fillStyle = '#1d1d24';
+    ctx.beginPath(); ctx.roundRect(x - 10, y - 44, 20, 48, 5); ctx.fill();
+    const lamps = [['red', '#ff3b30', -32], ['yellow', '#ffd23f', -18], ['green', '#2ecc71', -4]];
+    for (const [name, col, dy] of lamps) {
+      ctx.fillStyle = state === name ? col : '#3a3a3f';
+      ctx.beginPath(); ctx.arc(x, y + dy - 2, 6, 0, 7); ctx.fill();
+      if (state === name) {
+        ctx.fillStyle = col + '44';
+        ctx.beginPath(); ctx.arc(x, y + dy - 2, 10, 0, 7); ctx.fill();
+      }
+    }
+  };
+
+  S.train = function (ctx, x, y, dir) {
+    ctx.save();
+    ctx.translate(x, y);
+    if (dir < 0) ctx.scale(-1, 1);
+    // engine + 3 coaches moving right
+    const coach = (cx, col) => {
+      ctx.fillStyle = col;
+      ctx.beginPath(); ctx.roundRect(cx, -16, 92, 32, 5); ctx.fill();
+      ctx.fillStyle = '#f2e8cf';
+      for (let i = 0; i < 4; i++) ctx.fillRect(cx + 10 + i * 20, -8, 12, 10);
+    };
+    ctx.fillStyle = '#2c3e50';
+    ctx.beginPath(); ctx.roundRect(0, -16, 70, 32, [16, 5, 5, 16]); ctx.fill();
+    ctx.fillStyle = '#ffd23f';
+    ctx.fillRect(4, -6, 8, 12);
+    coach(-98, '#1f5fa8');
+    coach(-196, '#1f5fa8');
+    coach(-294, '#a4243b');
+    ctx.restore();
+  };
+
+  return S;
+})();
