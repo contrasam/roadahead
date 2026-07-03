@@ -221,8 +221,27 @@ window.RA = window.RA || {};
       const gapToPlayer = g.dist - this.d; // >0 while behind
       if (!this.passed && inMyLane && gapToPlayer < this.h + 40 && gapToPlayer > -20) {
         target = Math.max(0, g.player.speed - 10);
-        this.blockT += dt;
-        if (this.blockT > 2.4 && !this.violated) {
+        // the violation clock only ticks while the player HAS a free lane to
+        // move into — boxed in by traffic is not their fault
+        const escape = [g.player.lane - 1, g.player.lane + 1].some(l =>
+          l >= 0 && l <= 2 && g.laneFree(l, g.dist - 116, g.dist + 40));
+        if (escape) {
+          this.blockT += dt;
+        } else {
+          this.blockT = Math.max(0, this.blockT - dt);
+          this.boxedT = (this.boxedT || 0) + dt;
+          if (!this.boxToast && this.boxedT > 1) {
+            this.boxToast = true;
+            RA.ui.toast('🚑 Boxed in? No penalty — move over as soon as a gap opens!', 'info');
+          }
+          // a real ambulance finds its own way around a stuck queue
+          if (this.boxedT > 2.2) {
+            const opts = [this.lane - 1, this.lane + 1].filter(l =>
+              l >= 0 && l <= 2 && g.laneFree(l, this.d - 60, this.d + this.h + 140, this));
+            if (opts.length) { this.lane = pick(opts); this.boxedT = 0; }
+          }
+        }
+        if (this.blockT > 3 && !this.violated) {
           this.violated = true;
           g.challan('ambulance');
           // swerve around the player
