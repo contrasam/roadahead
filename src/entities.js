@@ -44,9 +44,10 @@ window.RA = window.RA || {};
       // follow vehicle ahead in the same lane
       const ahead = g.carAhead(this);
       if (ahead && ahead.d - this.d < this.h + 60) target = Math.min(target, ahead.v * 0.9);
-      // player is also an obstacle
-      if (this.lane === g.player.lane && this.d > g.dist - 90 && g.dist - this.d < this.h + 20 && this.d < g.dist) {
-        target = Math.min(target, g.player.speed * 0.9);
+      // the player is an obstacle too: brake early enough not to ram them
+      if (this.lane === g.player.lane && this.d < g.dist && Math.abs(this.x - g.player.x) < 70) {
+        const clear = (g.dist - 76) - this.d; // to the player's rear bumper
+        if (clear < 170) target = Math.min(target, clear < 50 ? Math.max(0, g.player.speed - 30) : g.player.speed);
       }
       this.v += Math.max(-460 * dt, Math.min(150 * dt, target - this.v));
       if (this.v < 0) this.v = 0;

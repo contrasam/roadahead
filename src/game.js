@@ -136,7 +136,11 @@ RA.game = (function () {
           if (!e.isTraffic || e.done) continue;
           const gap = e.d - this.dist;
           if (gap > -76 && gap < e.h && Math.abs(e.x - p.x) < (e.w + 44) / 2 - 6) {
-            this.crashInto(e);
+            // who is at fault?
+            if (e.d - e.h >= this.dist - 30) this.crashInto(e);       // we drove into their rear
+            else if (e.d <= this.dist - 46) this.rammedBy(e);         // they drove into our rear
+            else if (Math.abs(p.x - C.LANES[p.targetLane]) > 14) this.crashInto(e); // we side-swiped mid lane-change
+            else this.rammedBy(e);                                    // they swerved into us
             break;
           }
         }
@@ -307,6 +311,17 @@ RA.game = (function () {
         RA.ui.toast('-50  Maintain a safe distance! 💢', 'bad');
         if (this.damage >= 3) this.gameOver('wrecked');
       }
+    },
+
+    rammedBy(car) {
+      // not your fault: no fine, no damage, no streak loss
+      this.shakeT = 0.4;
+      this.invuln = 1.6;
+      car.d -= 24;
+      car.v = Math.min(car.v || 0, this.player.speed * 0.5);
+      if (car.changing !== undefined) car.changing = 2;
+      RA.audio.crash();
+      RA.ui.toast('💢 That driver rammed YOU — the challan is theirs, not yours 😌', 'info');
     },
 
     junctionHit() {
